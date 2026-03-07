@@ -1,14 +1,17 @@
 """Configuration settings for the NeuroHackathon Lie Detector App."""
 
+import os
+
 # OpenBCI Hardware Configuration
-SAMPLING_RATE = 250  # Hz
-EEG_CHANNELS = 8
-BOARD_ID = 1  # OpenBCI Cyton
+SAMPLING_RATE = 125  # Hz — Cyton+Daisy runs at 125 Hz
+EEG_CHANNELS = 16
+BOARD_ID = 2  # OpenBCI Cyton+Daisy
+SERIAL_PORT = os.getenv('OPENBCI_PORT', 'COM3')
 
 # Signal Processing
 FILTER_LOW_FREQ = 1  # Hz
 FILTER_HIGH_FREQ = 50  # Hz
-WINDOW_SIZE = 250  # Samples per window (1 second at 250 Hz)
+WINDOW_SIZE = 125  # Samples per window (1 second at 125 Hz)
 OVERLAP = 0.5  # 50% overlap
 
 # Frequency Bands (Hz)

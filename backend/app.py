@@ -7,10 +7,11 @@ import os
 
 try:
     from backend.main import LieDetectorApp
+    from backend.openbci_stream import OpenBCIStream
     import backend.config as config
 except ImportError:
-    # Allows running from backend/ as `python app.py`
     from main import LieDetectorApp
+    from openbci_stream import OpenBCIStream
     import config as config
 
 app = Flask(__name__)
@@ -19,12 +20,47 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 detector = LieDetectorApp()
+stream = OpenBCIStream(serial_port=config.SERIAL_PORT)
 
 
 @app.route('/api/health', methods=['GET'])
 def health():
-    # Health check endpoint
-    return jsonify({'status': 'healthy', 'service': 'lie-detector-backend'})
+    return jsonify({
+        'status': 'healthy',
+        'service': 'lie-detector-backend',
+        'hardware_connected': stream.connected,
+    })
+
+
+@app.route('/api/hardware/connect', methods=['POST'])
+def hardware_connect():
+    if stream.connected:
+        return jsonify({'status': 'already_connected', 'port': stream.serial_port})
+    try:
+        stream.connect()
+        return jsonify({'status': 'connected', 'port': stream.serial_port, 'sampling_rate': stream.sampling_rate})
+    except Exception as e:
+        logger.error(f"Hardware connect failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/hardware/disconnect', methods=['POST'])
+def hardware_disconnect():
+    if not stream.connected:
+        return jsonify({'status': 'already_disconnected'})
+    stream.disconnect()
+    return jsonify({'status': 'disconnected'})
+
+
+@app.route('/api/hardware/status', methods=['GET'])
+def hardware_status():
+    return jsonify({
+        'connected': stream.connected,
+        'port': stream.serial_port,
+        'board': 'Cyton+Daisy',
+        'channels': config.EEG_CHANNELS,
+        'sampling_rate': config.SAMPLING_RATE,
+    })
 
 
 @app.route('/api/session/start', methods=['POST'])
@@ -36,15 +72,20 @@ def start_session():
 
 @app.route('/api/session/process', methods=['POST'])
 def process_eeg():
-    # Process EEG data. If missing, use mock data for quick demos.
     data = request.get_json(silent=True) or {}
     eeg_data = data.get('eeg_data')
+
     if eeg_data is None:
-        eeg_data = detector.generate_mock_eeg(
-            n_channels=config.EEG_CHANNELS,
-            n_samples=config.WINDOW_SIZE * 2,
-            deceptive=bool(data.get('deceptive', False)),
-        )
+        if stream.connected:
+            # Pull one window of live data from the board (shape: 16 x WINDOW_SIZE*2)
+            raw = stream.get_data(n_samples=config.WINDOW_SIZE * 2)
+            eeg_data = raw.tolist()
+        else:
+            eeg_data = detector.generate_mock_eeg(
+                n_channels=config.EEG_CHANNELS,
+                n_samples=config.WINDOW_SIZE * 2,
+                deceptive=bool(data.get('deceptive', False)),
+            )
 
     result = detector.process_eeg_data(eeg_data)
     return jsonify(result if result else {'error': 'No predictions made'})
