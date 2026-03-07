@@ -140,6 +140,10 @@ function normalizeTranscriptText(rawText) {
         .trim();
 }
 
+function shouldScoreUtterance(speaker) {
+    return speaker === "Interviewee" && state.dataSource === "openbci";
+}
+
 function buildNodeStressPercentages(result) {
     if (Array.isArray(result.node_stress) && result.node_stress.length >= 8) {
         return result.node_stress.slice(0, 8).map((value) => toPercent(value));
@@ -263,6 +267,16 @@ function initSpeechRecognition() {
                 const cleanedText = normalizeTranscriptText(text);
                 const speaker = classifySpeaker(text);
                 el.micCaption.textContent = `Mic transcript: ${cleanedText}`;
+
+                if (!shouldScoreUtterance(speaker)) {
+                    addTranscriptLine(speaker, cleanedText, null);
+                    if (speaker === "Interviewer") {
+                        el.statusText.textContent = "Interviewer speech captured; scores update only from interviewee OpenBCI data.";
+                    } else if (state.dataSource !== "openbci") {
+                        el.statusText.textContent = "Interviewee speech captured, waiting for OpenBCI data source.";
+                    }
+                    continue;
+                }
 
                 scoreUtterance()
                     .then((metrics) => {
@@ -447,7 +461,9 @@ async function startSession() {
     el.reportBox.textContent = hardwareMessage
         ? `Session started. ${hardwareMessage}. Listening for conversation...`
         : "Session started. Listening for conversation...";
-    el.statusText.textContent = "Conversation capture active";
+    el.statusText.textContent = state.dataSource === "openbci"
+        ? "Conversation capture active (interviewee OpenBCI scoring)"
+        : "Conversation capture active (scores paused until OpenBCI source is connected)";
 
     if (!state.micEnabled) {
         try {
@@ -465,7 +481,9 @@ async function startSession() {
             // Ignore duplicate starts when already listening.
         }
     }
-    el.statusText.textContent = "Conversation capture active";
+    el.statusText.textContent = state.dataSource === "openbci"
+        ? "Conversation capture active (interviewee OpenBCI scoring)"
+        : "Conversation capture active (scores paused until OpenBCI source is connected)";
 }
 
 async function runSample() {
