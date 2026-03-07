@@ -15,6 +15,7 @@ const state = {
     micListening: false,
     speechRecognition: null,
     lastAssignedRole: null,
+    dataSource: "unknown",
 };
 
 const el = {
@@ -393,6 +394,21 @@ async function scoreUtterance() {
     };
 }
 
+function buildLocalSessionReport() {
+    const total = state.scores.length;
+    const deceptive = state.scores.filter((score) => score > 0.7).length;
+    const avg = total ? state.scores.reduce((a, b) => a + b, 0) / total : 0;
+
+    return {
+        total_windows: total,
+        deceptive_windows: deceptive,
+        average_deception_probability: avg,
+        session_assessment: total
+            ? (avg > 0.7 ? "Likely Deceptive" : "Likely Truthful")
+            : "No session data captured",
+    };
+}
+
 async function checkHealth() {
     try {
         await api("/health");
@@ -410,9 +426,15 @@ async function startSession() {
         const hardware = await api("/hardware/connect", { method: "POST" });
         if (hardware && (hardware.status === "connected" || hardware.status === "already_connected")) {
             hardwareMessage = `Hardware: ${hardware.status.replace("_", " ")}`;
+            state.dataSource = "openbci";
         }
     } catch (error) {
         hardwareMessage = "Hardware unavailable, using mock EEG data";
+        state.dataSource = "mock";
+    }
+
+    if (!hardwareMessage) {
+        state.dataSource = "mock";
     }
 
     await api("/session/start", { method: "POST" });
@@ -463,18 +485,20 @@ async function endSession() {
     try {
         report = await api("/session/end", { method: "POST" });
     } catch (error) {
-        report = {
-            total_windows: state.scores.length,
-            deceptive_windows: 0,
-            average_deception_probability: state.scores.length
-                ? state.scores.reduce((a, b) => a + b, 0) / state.scores.length
-                : 0,
-            session_assessment: "Interview ended locally (summary unavailable from API)",
-        };
+        report = buildLocalSessionReport();
+        report.session_assessment = "Interview ended locally (summary unavailable from API)";
     }
+
+    if ((!report || report.total_windows === 0) && state.scores.length > 0) {
+        report = buildLocalSessionReport();
+    }
+
+    const sourceLabel = state.dataSource === "openbci" ? "OpenBCI headset" : "Mock/demo signal";
+
     state.requestInFlight = false;
     updateButtons();
     el.reportBox.innerHTML = [
+        `Data source: ${sourceLabel}`,
         `Total windows: ${report.total_windows}`,
         `Deceptive windows: ${report.deceptive_windows}`,
         `Average probability: ${(report.average_deception_probability * 100).toFixed(1)}%`,
