@@ -2,7 +2,17 @@ const host = window.location.hostname || "localhost";
 const params = new URLSearchParams(window.location.search);
 const apiOverride = params.get("api");
 const isLocalStatic = window.location.port === "8080" || host === "localhost" || host === "127.0.0.1";
-const API_BASE_URL = apiOverride || (isLocalStatic ? `http://${host}:5050/api` : `${window.location.origin}/api`);
+
+function normalizeApiBase(url) {
+    if (!url) {
+        return null;
+    }
+
+    const trimmed = url.replace(/\/+$/, "");
+    return /\/api$/i.test(trimmed) ? trimmed : `${trimmed}/api`;
+}
+
+const API_BASE_URL = normalizeApiBase(apiOverride) || (isLocalStatic ? `http://${host}:5050/api` : `${window.location.origin}/api`);
 const MAX_TRANSCRIPT_ROWS = 160;
 const EEG_CAPTURE_INTERVAL_MS = 1000;
 const STATUS_REFRESH_INTERVAL_MS = 5000;
@@ -498,14 +508,17 @@ async function checkHealth() {
 
         if (typeof health.hardware_connected === "boolean") {
             state.hardwareConnected = health.hardware_connected;
+        } else if (typeof health.connected === "boolean") {
+            // Support older health payloads that use "connected".
+            state.hardwareConnected = health.connected;
         }
 
         if (typeof health.session_active === "boolean") {
             state.sessionActive = health.session_active;
         }
 
-        // Some deployments may expose hardware details separately.
-        if (typeof health.hardware_connected !== "boolean") {
+        // Some deployments expose hardware and session details separately.
+        if (typeof health.hardware_connected !== "boolean" && typeof health.connected !== "boolean") {
             try {
                 const hardware = await api("/hardware/status");
                 if (typeof hardware.connected === "boolean") {
@@ -513,6 +526,17 @@ async function checkHealth() {
                 }
             } catch (error) {
                 // Ignore when hardware route is not available (for hosted serverless APIs).
+            }
+        }
+
+        if (typeof health.session_active !== "boolean") {
+            try {
+                const session = await api("/session/status");
+                if (typeof session.session_active === "boolean") {
+                    state.sessionActive = session.session_active;
+                }
+            } catch (error) {
+                // Ignore when session status route is unavailable.
             }
         }
 

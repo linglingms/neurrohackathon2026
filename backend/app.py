@@ -74,6 +74,14 @@ def start_session():
     return jsonify({'status': 'session_started', 'message': 'New session initialized', 'session_active': session_active})
 
 
+@app.route('/api/session/status', methods=['GET'])
+def session_status():
+    return jsonify({
+        'session_active': session_active,
+        'hardware_connected': stream.connected,
+    })
+
+
 @app.route('/api/session/process', methods=['POST'])
 def process_eeg():
     data = request.get_json(silent=True) or {}
