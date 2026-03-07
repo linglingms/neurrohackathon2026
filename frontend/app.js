@@ -1,5 +1,8 @@
 const host = window.location.hostname || "localhost";
-const API_BASE_URL = `http://${host}:5050/api`;
+const params = new URLSearchParams(window.location.search);
+const apiOverride = params.get("api");
+const isLocalStatic = window.location.port === "8080" || host === "localhost" || host === "127.0.0.1";
+const API_BASE_URL = apiOverride || (isLocalStatic ? `http://${host}:5050/api` : `${window.location.origin}/api`);
 
 const state = {
     active: false,
