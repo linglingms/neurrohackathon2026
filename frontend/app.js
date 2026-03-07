@@ -562,15 +562,10 @@ async function startSession() {
     } catch (error) {
         hardwareMessage = "Hardware unavailable";
         state.hardwareConnected = false;
-
-        if (isLiveOverride) {
-            const hint = "OpenBCI hardware connect failed. Close OpenBCI GUI, confirm COM port, then retry Start Interview.";
-            el.statusText.textContent = hint;
-            throw new Error(hint);
-        }
-
         state.dataSource = "mock";
-        hardwareMessage = "Hardware unavailable, using mock EEG data";
+        hardwareMessage = isLiveOverride
+            ? "OpenBCI hardware connect failed. Session started without live headset data."
+            : "Hardware unavailable, using mock EEG data";
     }
 
     if (!hardwareMessage && !hardwareConnected) {
@@ -590,7 +585,9 @@ async function startSession() {
         : "Session started. Listening for conversation...";
     el.statusText.textContent = state.dataSource === "openbci"
         ? "Conversation capture active (interviewee OpenBCI scoring)"
-        : "Conversation capture active (scores paused until OpenBCI source is connected)";
+        : (isLiveOverride
+            ? "Session started, but headset is disconnected. Close OpenBCI GUI and reconnect board."
+            : "Conversation capture active (scores paused until OpenBCI source is connected)");
 
     if (!state.micEnabled) {
         try {
@@ -612,7 +609,9 @@ async function startSession() {
     }
     el.statusText.textContent = state.dataSource === "openbci"
         ? "Conversation capture active (interviewee OpenBCI scoring)"
-        : "Conversation capture active (scores paused until OpenBCI source is connected)";
+        : (isLiveOverride
+            ? "Session started, but headset is disconnected. Close OpenBCI GUI and reconnect board."
+            : "Conversation capture active (scores paused until OpenBCI source is connected)");
 }
 
 async function runSample() {
