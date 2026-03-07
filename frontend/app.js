@@ -1,6 +1,7 @@
 const host = window.location.hostname || "localhost";
 const params = new URLSearchParams(window.location.search);
 const apiOverride = params.get("api");
+const isLiveOverride = !!apiOverride;
 const isLocalStatic = window.location.port === "8080" || host === "localhost" || host === "127.0.0.1";
 
 function normalizeApiBase(url) {
@@ -518,15 +519,13 @@ async function checkHealth() {
         }
 
         // Some deployments expose hardware and session details separately.
-        if (typeof health.hardware_connected !== "boolean" && typeof health.connected !== "boolean") {
-            try {
-                const hardware = await api("/hardware/status");
-                if (typeof hardware.connected === "boolean") {
-                    state.hardwareConnected = hardware.connected;
-                }
-            } catch (error) {
-                // Ignore when hardware route is not available (for hosted serverless APIs).
+        try {
+            const hardware = await api("/hardware/status");
+            if (typeof hardware.connected === "boolean") {
+                state.hardwareConnected = hardware.connected;
             }
+        } catch (error) {
+            // Ignore when hardware route is not available (for hosted serverless APIs).
         }
 
         if (typeof health.session_active !== "boolean") {
@@ -544,28 +543,37 @@ async function checkHealth() {
     } catch (error) {
         el.health.textContent = "API Offline";
         el.health.className = "pill pill-bad";
-        state.hardwareConnected = false;
-        state.sessionActive = false;
+        // Keep last known states to avoid false red flips during brief tunnel/network drops.
         updateConnectionStatus();
     }
 }
 
 async function startSession() {
     let hardwareMessage = "";
+    let hardwareConnected = false;
     try {
         const hardware = await api("/hardware/connect", { method: "POST" });
         if (hardware && (hardware.status === "connected" || hardware.status === "already_connected")) {
             hardwareMessage = `Hardware: ${hardware.status.replace("_", " ")}`;
             state.dataSource = "openbci";
             state.hardwareConnected = true;
+            hardwareConnected = true;
         }
     } catch (error) {
-        hardwareMessage = "Hardware unavailable, using mock EEG data";
-        state.dataSource = "mock";
+        hardwareMessage = "Hardware unavailable";
         state.hardwareConnected = false;
+
+        if (isLiveOverride) {
+            const hint = "OpenBCI hardware connect failed. Close OpenBCI GUI, confirm COM port, then retry Start Interview.";
+            el.statusText.textContent = hint;
+            throw new Error(hint);
+        }
+
+        state.dataSource = "mock";
+        hardwareMessage = "Hardware unavailable, using mock EEG data";
     }
 
-    if (!hardwareMessage) {
+    if (!hardwareMessage && !hardwareConnected) {
         state.dataSource = "mock";
     }
 

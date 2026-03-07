@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 detector = LieDetectorApp()
 stream = OpenBCIStream(serial_port=config.SERIAL_PORT)
 session_active = False
+last_hardware_error = None
 
 
 @app.route('/api/health', methods=['GET'])
@@ -31,26 +32,32 @@ def health():
         'service': 'lie-detector-backend',
         'hardware_connected': stream.connected,
         'session_active': session_active,
+        'hardware_error': last_hardware_error,
     })
 
 
 @app.route('/api/hardware/connect', methods=['POST'])
 def hardware_connect():
+    global last_hardware_error
     if stream.connected:
         return jsonify({'status': 'already_connected', 'port': stream.serial_port})
     try:
         stream.connect()
+        last_hardware_error = None
         return jsonify({'status': 'connected', 'port': stream.serial_port, 'sampling_rate': stream.sampling_rate})
     except Exception as e:
         logger.error(f"Hardware connect failed: {e}")
+        last_hardware_error = str(e)
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/hardware/disconnect', methods=['POST'])
 def hardware_disconnect():
+    global last_hardware_error
     if not stream.connected:
         return jsonify({'status': 'already_disconnected'})
     stream.disconnect()
+    last_hardware_error = None
     return jsonify({'status': 'disconnected'})
 
 
@@ -62,6 +69,7 @@ def hardware_status():
         'board': 'Cyton+Daisy',
         'channels': config.EEG_CHANNELS,
         'sampling_rate': config.SAMPLING_RATE,
+        'error': last_hardware_error,
     })
 
 
