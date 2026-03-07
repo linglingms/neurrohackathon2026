@@ -6,7 +6,7 @@
 
 body {
     font-family: 'Space Grotesk', sans-serif;
-    background: radial-gradient(circle at 20% 20%, #163255 0%, #0a1524 45%, #05090f 100%);
+    background: #0a1f44;
     min-height: 100vh;
     color: #ebf1f8;
     overflow-x: hidden;
