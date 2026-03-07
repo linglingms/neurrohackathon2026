@@ -19,10 +19,17 @@
         </header>
 
         <section class="controls">
-            <button id="start-btn" class="btn btn-primary">Start Session</button>
+            <button id="start-btn" class="btn btn-primary">Start Interview</button>
             <button id="sample-btn" class="btn btn-secondary" disabled>Run Sample</button>
-            <button id="end-btn" class="btn btn-danger" disabled>End Session</button>
+            <button id="end-btn" class="btn btn-danger" disabled>End Interview</button>
             <button id="export-btn" class="btn btn-secondary">Export Session JSON</button>
+        </section>
+
+        <section class="transcript-wrap">
+            <h2>Transcript Log</h2>
+            <div id="transcript-log" class="transcript-log">
+                <div class="transcript-empty">Transcript will appear after the interview starts.</div>
+            </div>
         </section>
 
         <section class="grid">

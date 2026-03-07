@@ -8,6 +8,7 @@ const state = {
     active: false,
     scores: [],
     lastResult: null,
+    transcript: [],
 };
 
 const el = {
@@ -23,7 +24,32 @@ const el = {
     avgValue: document.getElementById("avg-value"),
     confidenceValue: document.getElementById("confidence-value"),
     reportBox: document.getElementById("report-box"),
+    transcriptLog: document.getElementById("transcript-log"),
 };
+
+function renderTranscript() {
+    if (!state.transcript.length) {
+        el.transcriptLog.innerHTML = '<div class="transcript-empty">Transcript will appear after the interview starts.</div>';
+        return;
+    }
+
+    el.transcriptLog.innerHTML = state.transcript
+        .map(
+            (entry) =>
+                `<div class="transcript-entry">` +
+                `<span class="speaker speaker-${entry.speaker.toLowerCase()}">${entry.speaker}:</span> ` +
+                `<span class="transcript-line">${entry.text}</span>` +
+                `</div>`
+        )
+        .join("");
+
+    el.transcriptLog.scrollTop = el.transcriptLog.scrollHeight;
+}
+
+function addTranscriptLine(speaker, text) {
+    state.transcript.push({ speaker, text });
+    renderTranscript();
+}
 
 function updateButtons() {
     el.startBtn.disabled = state.active;
@@ -78,8 +104,11 @@ async function startSession() {
     state.active = true;
     state.scores = [];
     state.lastResult = null;
+    state.transcript = [];
     el.reportBox.textContent = "Session started. Run one or more samples.";
     el.statusText.textContent = "Collecting baseline...";
+    addTranscriptLine("Interviewer", "Interview has started. Please introduce yourself.");
+    addTranscriptLine("Interviewee", "Hello, I am ready to begin the interview.");
     updateButtons();
 }
 
@@ -90,6 +119,9 @@ async function runSample() {
     });
     state.lastResult = result;
     state.scores.push(result.deception_probability || 0);
+    const scorePct = Math.round((result.deception_probability || 0) * 100);
+    addTranscriptLine("Interviewer", "Please describe your previous role and responsibilities.");
+    addTranscriptLine("Interviewee", `Answer received. Current stress score marker: ${scorePct}%.`);
     updateSummary(result);
 }
 
@@ -97,6 +129,8 @@ async function endSession() {
     const report = await api("/session/end", { method: "POST" });
     state.active = false;
     updateButtons();
+    addTranscriptLine("Interviewer", "Thank you. This concludes the interview.");
+    addTranscriptLine("Interviewee", "Thank you for your time.");
     el.reportBox.innerHTML = [
         `Total windows: ${report.total_windows}`,
         `Deceptive windows: ${report.deceptive_windows}`,
@@ -120,4 +154,5 @@ el.endBtn.addEventListener("click", () => endSession().catch((e) => (el.statusTe
 el.exportBtn.addEventListener("click", () => exportSession().catch((e) => (el.statusText.textContent = e.message)));
 
 updateButtons();
+renderTranscript();
 checkHealth();
