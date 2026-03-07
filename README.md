@@ -2,6 +2,10 @@
 
 Real-time biosignal analysis app for desktop and mobile browsers, built for OpenBCI + Jetson Nano.
 
+## Live App
+- Production URL: `https://neurrohackathon2026.vercel.app`
+- Health check: `https://neurrohackathon2026.vercel.app/api/health`
+
 ## Important Note
 This project estimates stress and cognitive load from biosignals. It is not a validated forensic lie detector.
 
