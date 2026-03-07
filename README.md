@@ -32,7 +32,31 @@ python -m backend.app
 open frontend/index.html
 ```
 
-The frontend uses `http://localhost:5000/api` by default.
+The frontend uses `http://localhost:5050/api` by default.
+
+## Deploy On Local Network (Desktop + Mobile)
+
+1. Start backend on all interfaces:
+
+```bash
+cd /Users/warrenbuenarte/Library/CloudStorage/OneDrive-Personal/Documents/neurrohackathon2026
+python -m backend.app
+```
+
+2. In a second terminal, serve frontend on all interfaces:
+
+```bash
+cd /Users/warrenbuenarte/Library/CloudStorage/OneDrive-Personal/Documents/neurrohackathon2026/frontend
+python -m http.server 8080 --bind 0.0.0.0
+```
+
+3. Find your computer LAN IP and open on phone/computer:
+
+```bash
+ipconfig getifaddr en0
+```
+
+Open `http://<YOUR_LAN_IP>:8080` on any device on the same Wi-Fi.
 
 ## API Endpoints
 - `GET /api/health`: service status

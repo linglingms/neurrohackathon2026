@@ -1,4 +1,5 @@
-const API_BASE_URL = "http://localhost:5000/api";
+const host = window.location.hostname || "localhost";
+const API_BASE_URL = `http://${host}:5050/api`;
 
 const state = {
     active: false,

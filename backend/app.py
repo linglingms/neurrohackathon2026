@@ -3,6 +3,7 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import logging
+import os
 
 try:
     from backend.main import LieDetectorApp
@@ -75,4 +76,4 @@ def get_config():
 
 if __name__ == '__main__':
     logger.info('Starting Lie Detector API Server')
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=int(os.getenv('PORT', '5050')))
