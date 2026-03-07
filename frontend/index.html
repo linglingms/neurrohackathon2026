@@ -25,6 +25,14 @@
             <button id="end-btn" class="btn btn-danger" disabled>End Interview</button>
             <button id="mic-btn" class="btn btn-secondary">Enable Microphone</button>
             <button id="export-btn" class="btn btn-secondary">Export Session JSON</button>
+            <label class="speaker-mode-wrap" for="speaker-mode">
+                Speaker Mode
+                <select id="speaker-mode" class="speaker-select">
+                    <option value="auto" selected>Auto Detect</option>
+                    <option value="interviewer">Interviewer Speaking</option>
+                    <option value="interviewee">Interviewee Speaking</option>
+                </select>
+            </label>
         </section>
 
         <section class="transcript-wrap">

@@ -94,6 +94,25 @@ body {
     margin: 0 0 20px;
 }
 
+.speaker-mode-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    color: #c9e2f8;
+    font-size: 0.82rem;
+    font-weight: 600;
+    min-width: 190px;
+}
+
+.speaker-select {
+    background: #152b42;
+    color: #e2f0fc;
+    border: 1px solid #2a4766;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 0.9rem;
+}
+
 .transcript-wrap {
     border: 1px solid rgba(159, 197, 232, 0.2);
     background: rgba(11, 20, 34, 0.78);

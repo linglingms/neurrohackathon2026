@@ -14,6 +14,7 @@ const state = {
     micEnabled: false,
     micListening: false,
     speechRecognition: null,
+    lastAssignedRole: null,
 };
 
 const el = {
@@ -23,6 +24,7 @@ const el = {
     sampleBtn: document.getElementById("sample-btn"),
     endBtn: document.getElementById("end-btn"),
     micBtn: document.getElementById("mic-btn"),
+    speakerMode: document.getElementById("speaker-mode"),
     exportBtn: document.getElementById("export-btn"),
     scoreValue: document.getElementById("score-value"),
     scoreBar: document.getElementById("score-bar"),
@@ -86,6 +88,14 @@ function toPercent(value) {
 }
 
 function classifySpeaker(rawText) {
+    const mode = el.speakerMode ? el.speakerMode.value : "auto";
+    if (mode === "interviewer") {
+        return "Interviewer";
+    }
+    if (mode === "interviewee") {
+        return "Interviewee";
+    }
+
     const text = (rawText || "").trim();
     const lower = text.toLowerCase();
 
@@ -99,9 +109,28 @@ function classifySpeaker(rawText) {
     const questionStarters = [
         "can you", "could you", "would you", "will you", "what", "why", "how", "when", "where", "who", "tell me", "describe", "explain",
     ];
+    const answerStarters = [
+        "i ", "my ", "in my", "we ", "our ", "yes", "no", "because", "sure", "absolutely", "honestly",
+    ];
     const looksLikeQuestion = text.endsWith("?") || questionStarters.some((prefix) => lower.startsWith(prefix));
+    const looksLikeAnswer = answerStarters.some((prefix) => lower.startsWith(prefix));
 
-    return looksLikeQuestion ? "Interviewer" : "Interviewee";
+    if (looksLikeQuestion) {
+        return "Interviewer";
+    }
+    if (looksLikeAnswer) {
+        return "Interviewee";
+    }
+
+    // Fallback to conversational turn taking when auto mode is uncertain.
+    if (state.lastAssignedRole === "Interviewer") {
+        return "Interviewee";
+    }
+    if (state.lastAssignedRole === "Interviewee") {
+        return "Interviewer";
+    }
+
+    return "Interviewer";
 }
 
 function normalizeTranscriptText(rawText) {
@@ -148,6 +177,7 @@ function addTranscriptLine(speaker, text, metrics = null) {
     const confidence = metrics && typeof metrics.confidence === "number" ? metrics.confidence : null;
 
     state.transcript.push({ speaker, text, nodes, confidence });
+    state.lastAssignedRole = speaker;
     if (state.transcript.length > MAX_TRANSCRIPT_ROWS) {
         state.transcript = state.transcript.slice(-MAX_TRANSCRIPT_ROWS);
     }
@@ -390,6 +420,7 @@ async function startSession() {
     state.scores = [];
     state.lastResult = null;
     state.transcript = [];
+    state.lastAssignedRole = null;
     state.requestInFlight = false;
     el.reportBox.textContent = hardwareMessage
         ? `Session started. ${hardwareMessage}. Listening for conversation...`
