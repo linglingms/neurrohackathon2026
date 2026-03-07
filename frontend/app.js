@@ -367,6 +367,15 @@ async function startSession() {
     el.statusText.textContent = "Collecting baseline...";
     addTranscriptLine("Interviewer", "Interview has started. Please introduce yourself.");
     addTranscriptLine("Interviewee", "Hello, I am ready to begin the interview.");
+
+    if (!state.micEnabled) {
+        try {
+            await enableMic();
+        } catch (error) {
+            el.micCaption.textContent = "Mic transcript: microphone permission denied or unavailable";
+        }
+    }
+
     updateButtons();
     startLiveProcessing();
     if (state.micEnabled && state.speechRecognition) {
@@ -415,6 +424,7 @@ async function runSample() {
 }
 
 async function endSession() {
+    state.active = false;
     stopLiveProcessing();
     if (state.speechRecognition && state.micListening) {
         try {
@@ -424,7 +434,6 @@ async function endSession() {
         }
     }
     const report = await api("/session/end", { method: "POST" });
-    state.active = false;
     state.requestInFlight = false;
     updateButtons();
     addTranscriptLine("Interviewer", "Thank you. This concludes the interview.");
