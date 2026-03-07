@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeuroSignal Interview Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="scene-glow"></div>
+    <main class="container">
+        <header class="header">
+            <h1>NeuroSignal Interview Dashboard</h1>
+            <p>Desktop and mobile biosignal scoring demo for OpenBCI + Jetson Nano</p>
+            <span id="health-pill" class="pill">Checking API...</span>
+        </header>
+
+        <section class="controls">
+            <button id="start-btn" class="btn btn-primary">Start Session</button>
+            <button id="sample-btn" class="btn btn-secondary" disabled>Run Sample</button>
+            <button id="end-btn" class="btn btn-danger" disabled>End Session</button>
+            <button id="export-btn" class="btn btn-secondary">Export Session JSON</button>
+        </section>
+
+        <section class="grid">
+            <article class="card">
+                <h2>Current Score</h2>
+                <div id="score-value" class="big-number">--%</div>
+                <div class="progress-track">
+                    <div id="score-bar" class="progress-fill" style="width: 0%">0%</div>
+                </div>
+                <p id="status-text" class="status">Session not started</p>
+            </article>
+
+            <article class="card">
+                <h2>Session Stats</h2>
+                <div class="metric-row"><span>Windows analyzed</span><strong id="windows-value">0</strong></div>
+                <div class="metric-row"><span>Average score</span><strong id="avg-value">0%</strong></div>
+                <div class="metric-row"><span>Last confidence</span><strong id="confidence-value">0%</strong></div>
+            </article>
+
+            <article class="card">
+                <h2>Session Report</h2>
+                <div id="report-box" class="report-box">End a session to view report.</div>
+            </article>
+        </section>
+    </main>
+    <script src="app.js"></script>
+</body>
+</html>

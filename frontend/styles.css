@@ -1,0 +1,238 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Space Grotesk', sans-serif;
+    background: radial-gradient(circle at 20% 20%, #163255 0%, #0a1524 45%, #05090f 100%);
+    min-height: 100vh;
+    color: #ebf1f8;
+    overflow-x: hidden;
+}
+
+.container {
+    position: relative;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 28px 18px 40px;
+    z-index: 2;
+}
+
+.scene-glow {
+    position: fixed;
+    width: 680px;
+    height: 680px;
+    border-radius: 50%;
+    top: -240px;
+    right: -180px;
+    background: radial-gradient(circle, rgba(0, 219, 190, 0.22) 0%, rgba(0, 219, 190, 0) 70%);
+    pointer-events: none;
+    z-index: 1;
+}
+
+.header {
+    border: 1px solid rgba(158, 190, 222, 0.25);
+    background: rgba(12, 21, 35, 0.75);
+    backdrop-filter: blur(8px);
+    border-radius: 14px;
+    padding: 22px;
+    margin-bottom: 20px;
+}
+
+.header h1 {
+    color: #f4fbff;
+    font-size: clamp(1.5rem, 3.6vw, 2.4rem);
+    line-height: 1.15;
+    margin-bottom: 8px;
+}
+
+.header p {
+    color: #bdd4ea;
+    font-size: 1rem;
+    margin-bottom: 14px;
+}
+
+.pill {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    border: 1px solid rgba(174, 207, 237, 0.25);
+}
+
+.pill-ok {
+    background: rgba(0, 194, 156, 0.2);
+    color: #7ef2d4;
+}
+
+.pill-bad {
+    background: rgba(241, 92, 92, 0.2);
+    color: #ffbcbc;
+}
+
+.controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 0 0 20px;
+}
+
+.btn {
+    padding: 12px 18px;
+    font-size: 0.95rem;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-weight: 600;
+    min-width: 140px;
+}
+
+.btn-primary {
+    background: #00c2a7;
+    color: #062421;
+}
+
+.btn-primary:hover {
+    background: #2bd9c2;
+    transform: translateY(-2px);
+}
+
+.btn-secondary {
+    background: #1a2e44;
+    color: #d0e6fb;
+    border-color: #2a4766;
+}
+
+.btn-secondary:hover {
+    background: #234162;
+    transform: translateY(-2px);
+}
+
+.btn-danger {
+    background: #5b1f2f;
+    color: #ffdce4;
+    border-color: #8e3950;
+}
+
+.btn-danger:hover {
+    background: #7a2d42;
+}
+
+.btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 14px;
+}
+
+.card {
+    grid-column: span 4;
+    background: rgba(11, 20, 34, 0.78);
+    border: 1px solid rgba(159, 197, 232, 0.2);
+    border-radius: 14px;
+    padding: 18px;
+    min-height: 220px;
+}
+
+.card h2 {
+    color: #edfbff;
+    margin-bottom: 14px;
+    font-size: 1.05rem;
+    letter-spacing: 0.02em;
+}
+
+.big-number {
+    font-size: clamp(2rem, 7vw, 3.5rem);
+    font-weight: 700;
+    color: #7ef2d4;
+    margin-bottom: 10px;
+}
+
+.metric-row {
+    margin: 12px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px dashed rgba(171, 201, 231, 0.18);
+    padding-bottom: 7px;
+}
+
+.metric-row span {
+    color: #bdd4ea;
+    font-size: 0.92rem;
+}
+
+.metric-row strong {
+    color: #f4fbff;
+    font-size: 1rem;
+}
+
+.progress-track {
+    width: 100%;
+    height: 28px;
+    background: #12253e;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #274365;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #00c2a7, #49d0ff 60%, #8fb9ff);
+    transition: width 0.25s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #03141f;
+    font-weight: 700;
+    font-size: 0.86rem;
+}
+
+.status {
+    margin-top: 12px;
+    color: #cce4f8;
+    font-size: 0.92rem;
+}
+
+.report-box {
+    background: #0d1b2d;
+    border: 1px solid #223a58;
+    border-radius: 10px;
+    padding: 12px;
+    line-height: 1.6;
+    color: #d7eafc;
+    min-height: 130px;
+}
+
+@media (max-width: 768px) {
+    .container {
+        padding: 16px 14px 30px;
+    }
+
+    .card {
+        grid-column: span 12;
+        min-height: 180px;
+    }
+
+    .header h1 {
+        font-size: 1.45rem;
+    }
+
+    .controls {
+        display: grid;
+        grid-template-columns: 1fr;
+    }
+
+    .btn {
+        width: 100%;
+    }
+}
