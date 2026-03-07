@@ -44,7 +44,7 @@ function renderTranscript() {
         return;
     }
 
-    const headerCells = ["Role", "Transrption", "Node 1", "Node 2", "Node 3", "Node 4", "Node 5", "Node 6", "Node 7", "Node 8", "Overall Confidence"];
+    const headerCells = ["Role", "Transcription", "Node 1", "Node 2", "Node 3", "Node 4", "Node 5", "Node 6", "Node 7", "Node 8", "Overall Confidence"];
     const headerHtml = headerCells.map((label) => `<th>${label}</th>`).join("");
 
     const rowsHtml = state.transcript
