@@ -3,7 +3,6 @@ const params = new URLSearchParams(window.location.search);
 const apiOverride = params.get("api");
 const isLocalStatic = window.location.port === "8080" || host === "localhost" || host === "127.0.0.1";
 const API_BASE_URL = apiOverride || (isLocalStatic ? `http://${host}:5050/api` : `${window.location.origin}/api`);
-const LIVE_SAMPLE_INTERVAL_MS = 1000;
 const MAX_TRANSCRIPT_ROWS = 160;
 
 const state = {
@@ -11,9 +10,7 @@ const state = {
     scores: [],
     lastResult: null,
     transcript: [],
-    liveTimer: null,
     requestInFlight: false,
-    sampleCount: 0,
     micEnabled: false,
     micListening: false,
     speechRecognition: null,
@@ -88,6 +85,31 @@ function toPercent(value) {
     return Math.max(0, Math.min(100, value * 100));
 }
 
+function classifySpeaker(rawText) {
+    const text = (rawText || "").trim();
+    const lower = text.toLowerCase();
+
+    if (lower.startsWith("interviewer:") || lower.startsWith("question:")) {
+        return "Interviewer";
+    }
+    if (lower.startsWith("interviewee:") || lower.startsWith("candidate:") || lower.startsWith("answer:")) {
+        return "Interviewee";
+    }
+
+    const questionStarters = [
+        "can you", "could you", "would you", "will you", "what", "why", "how", "when", "where", "who", "tell me", "describe", "explain",
+    ];
+    const looksLikeQuestion = text.endsWith("?") || questionStarters.some((prefix) => lower.startsWith(prefix));
+
+    return looksLikeQuestion ? "Interviewer" : "Interviewee";
+}
+
+function normalizeTranscriptText(rawText) {
+    return (rawText || "")
+        .replace(/^\s*(interviewer|question|interviewee|candidate|answer)\s*:\s*/i, "")
+        .trim();
+}
+
 function buildNodeStressPercentages(result) {
     if (Array.isArray(result.node_stress) && result.node_stress.length >= 8) {
         return result.node_stress.slice(0, 8).map((value) => toPercent(value));
@@ -130,22 +152,6 @@ function addTranscriptLine(speaker, text, metrics = null) {
         state.transcript = state.transcript.slice(-MAX_TRANSCRIPT_ROWS);
     }
     renderTranscript();
-}
-
-function stopLiveProcessing() {
-    if (state.liveTimer) {
-        clearInterval(state.liveTimer);
-        state.liveTimer = null;
-    }
-}
-
-function startLiveProcessing() {
-    stopLiveProcessing();
-    state.liveTimer = setInterval(() => {
-        processSample(true).catch((error) => {
-            el.statusText.textContent = `Live stream paused: ${error.message}`;
-        });
-    }, LIVE_SAMPLE_INTERVAL_MS);
 }
 
 function getLatestMetrics() {
@@ -223,9 +229,18 @@ function initSpeechRecognition() {
         for (let i = event.resultIndex; i < event.results.length; i += 1) {
             const text = event.results[i][0].transcript.trim();
             if (event.results[i].isFinal) {
-                const metrics = getLatestMetrics();
-                el.micCaption.textContent = `Mic transcript: ${text}`;
-                addTranscriptLine("Interviewee", `Mic: ${text}`, metrics);
+                const cleanedText = normalizeTranscriptText(text);
+                const speaker = classifySpeaker(text);
+                el.micCaption.textContent = `Mic transcript: ${cleanedText}`;
+
+                scoreUtterance()
+                    .then((metrics) => {
+                        addTranscriptLine(speaker, cleanedText, metrics);
+                    })
+                    .catch((error) => {
+                        el.statusText.textContent = `Scoring error: ${error.message}`;
+                        addTranscriptLine(speaker, cleanedText, getLatestMetrics());
+                    });
             } else {
                 interim = text;
             }
@@ -297,7 +312,7 @@ async function toggleMic() {
 
 function updateButtons() {
     el.startBtn.disabled = state.active;
-    el.sampleBtn.disabled = !state.active;
+    el.sampleBtn.disabled = true;
     el.endBtn.disabled = !state.active;
     el.exportBtn.disabled = state.active;
     el.micBtn.disabled = false;
@@ -333,6 +348,21 @@ async function api(path, options = {}) {
     return response.json();
 }
 
+async function scoreUtterance() {
+    const result = await api("/session/process", {
+        method: "POST",
+        body: JSON.stringify({}),
+    });
+    state.lastResult = result;
+    state.scores.push(result.deception_probability || 0);
+    updateSummary(result);
+
+    return {
+        nodes: buildNodeStressPercentages(result),
+        confidence: toPercent(result.confidence || 0),
+    };
+}
+
 async function checkHealth() {
     try {
         await api("/health");
@@ -360,14 +390,11 @@ async function startSession() {
     state.scores = [];
     state.lastResult = null;
     state.transcript = [];
-    state.sampleCount = 0;
     state.requestInFlight = false;
     el.reportBox.textContent = hardwareMessage
-        ? `Session started. ${hardwareMessage}. Run one or more samples.`
-        : "Session started. Run one or more samples.";
-    el.statusText.textContent = "Collecting baseline...";
-    addTranscriptLine("Interviewer", "Interview has started. Please introduce yourself.");
-    addTranscriptLine("Interviewee", "Hello, I am ready to begin the interview.");
+        ? `Session started. ${hardwareMessage}. Listening for conversation...`
+        : "Session started. Listening for conversation...";
+    el.statusText.textContent = "Conversation capture active";
 
     if (!state.micEnabled) {
         try {
@@ -378,7 +405,6 @@ async function startSession() {
     }
 
     updateButtons();
-    startLiveProcessing();
     if (state.micEnabled && state.speechRecognition) {
         try {
             state.speechRecognition.start();
@@ -386,47 +412,15 @@ async function startSession() {
             // Ignore duplicate starts when already listening.
         }
     }
-    el.statusText.textContent = "Live monitoring active";
-}
-
-async function processSample(isLiveMode = false) {
-    if (!state.active || state.requestInFlight) {
-        return;
-    }
-
-    state.requestInFlight = true;
-    try {
-        const result = await api("/session/process", {
-            method: "POST",
-            body: JSON.stringify({}),
-        });
-        state.lastResult = result;
-        state.scores.push(result.deception_probability || 0);
-        state.sampleCount += 1;
-        const scorePct = Math.round((result.deception_probability || 0) * 100);
-        const metrics = {
-            nodes: buildNodeStressPercentages(result),
-            confidence: toPercent(result.confidence || 0),
-        };
-
-        if (!isLiveMode || state.sampleCount % 4 === 1) {
-            addTranscriptLine("Interviewer", "Please continue with your response.", metrics);
-        }
-        addTranscriptLine("Interviewee", `Live sample ${state.sampleCount}: stress marker ${scorePct}%.`, metrics);
-
-        updateSummary(result);
-    } finally {
-        state.requestInFlight = false;
-    }
+    el.statusText.textContent = "Conversation capture active";
 }
 
 async function runSample() {
-    await processSample(false);
+    el.statusText.textContent = "Run Sample is disabled. Rows are now added only from recorded conversation.";
 }
 
 async function endSession() {
     state.active = false;
-    stopLiveProcessing();
     if (state.speechRecognition && state.micListening) {
         try {
             state.speechRecognition.stop();
@@ -449,8 +443,6 @@ async function endSession() {
     }
     state.requestInFlight = false;
     updateButtons();
-    addTranscriptLine("Interviewer", "Thank you. This concludes the interview.");
-    addTranscriptLine("Interviewee", "Thank you for your time.");
     el.reportBox.innerHTML = [
         `Total windows: ${report.total_windows}`,
         `Deceptive windows: ${report.deceptive_windows}`,
@@ -474,7 +466,6 @@ el.endBtn.addEventListener("click", () => endSession().catch((e) => (el.statusTe
 el.micBtn.addEventListener("click", () => toggleMic().catch((e) => (el.statusText.textContent = e.message)));
 el.exportBtn.addEventListener("click", () => exportSession().catch((e) => (el.statusText.textContent = e.message)));
 window.addEventListener("beforeunload", () => {
-    stopLiveProcessing();
     if (state.speechRecognition && state.micListening) {
         try {
             state.speechRecognition.stop();
