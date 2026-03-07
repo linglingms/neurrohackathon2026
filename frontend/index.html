@@ -16,17 +16,20 @@
             <h1>NeuroSignal Interview Dashboard</h1>
             <p>Desktop and mobile biosignal scoring demo for OpenBCI + Jetson Nano</p>
             <span id="health-pill" class="pill">Checking API...</span>
+            <span id="mic-pill" class="pill mic-pill">Mic: Off</span>
         </header>
 
         <section class="controls">
             <button id="start-btn" class="btn btn-primary">Start Interview</button>
             <button id="sample-btn" class="btn btn-secondary" disabled>Run Sample</button>
             <button id="end-btn" class="btn btn-danger" disabled>End Interview</button>
+            <button id="mic-btn" class="btn btn-secondary">Enable Microphone</button>
             <button id="export-btn" class="btn btn-secondary">Export Session JSON</button>
         </section>
 
         <section class="transcript-wrap">
             <h2>Transcript Log</h2>
+            <p id="mic-caption" class="mic-caption">Mic transcript: waiting...</p>
             <div id="transcript-log" class="transcript-log">
                 <div class="transcript-empty">Transcript will appear after the interview starts.</div>
             </div>

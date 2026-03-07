@@ -14,13 +14,18 @@ const state = {
     liveTimer: null,
     requestInFlight: false,
     sampleCount: 0,
+    micEnabled: false,
+    micListening: false,
+    speechRecognition: null,
 };
 
 const el = {
     health: document.getElementById("health-pill"),
+    micPill: document.getElementById("mic-pill"),
     startBtn: document.getElementById("start-btn"),
     sampleBtn: document.getElementById("sample-btn"),
     endBtn: document.getElementById("end-btn"),
+    micBtn: document.getElementById("mic-btn"),
     exportBtn: document.getElementById("export-btn"),
     scoreValue: document.getElementById("score-value"),
     scoreBar: document.getElementById("score-bar"),
@@ -30,6 +35,7 @@ const el = {
     confidenceValue: document.getElementById("confidence-value"),
     reportBox: document.getElementById("report-box"),
     transcriptLog: document.getElementById("transcript-log"),
+    micCaption: document.getElementById("mic-caption"),
 };
 
 function renderTranscript() {
@@ -141,11 +147,159 @@ function startLiveProcessing() {
     }, LIVE_SAMPLE_INTERVAL_MS);
 }
 
+function getLatestMetrics() {
+    if (!state.lastResult) {
+        return null;
+    }
+
+    return {
+        nodes: buildNodeStressPercentages(state.lastResult),
+        confidence: toPercent(state.lastResult.confidence || 0),
+    };
+}
+
+function updateMicUi() {
+    if (!el.micPill || !el.micBtn) {
+        return;
+    }
+
+    if (!state.micEnabled) {
+        el.micPill.textContent = "Mic: Off";
+        el.micPill.className = "pill mic-pill";
+        el.micBtn.textContent = "Enable Microphone";
+        return;
+    }
+
+    if (state.micListening) {
+        el.micPill.textContent = "Mic: Listening";
+        el.micPill.className = "pill mic-pill mic-pill-on";
+        el.micBtn.textContent = "Disable Microphone";
+    } else {
+        el.micPill.textContent = "Mic: Enabled";
+        el.micPill.className = "pill mic-pill mic-pill-idle";
+        el.micBtn.textContent = "Disable Microphone";
+    }
+}
+
+function initSpeechRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        return null;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onstart = () => {
+        state.micListening = true;
+        updateMicUi();
+    };
+
+    recognition.onend = () => {
+        state.micListening = false;
+        updateMicUi();
+
+        // Resume listening while active unless the user manually turned mic off.
+        if (state.active && state.micEnabled) {
+            setTimeout(() => {
+                try {
+                    recognition.start();
+                } catch (error) {
+                    // Ignore double-start timing races; browser will continue firing onend.
+                }
+            }, 150);
+        }
+    };
+
+    recognition.onerror = (event) => {
+        el.statusText.textContent = `Microphone error: ${event.error}`;
+    };
+
+    recognition.onresult = (event) => {
+        let interim = "";
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+            const text = event.results[i][0].transcript.trim();
+            if (event.results[i].isFinal) {
+                const metrics = getLatestMetrics();
+                el.micCaption.textContent = `Mic transcript: ${text}`;
+                addTranscriptLine("Interviewee", `Mic: ${text}`, metrics);
+            } else {
+                interim = text;
+            }
+        }
+
+        if (interim) {
+            el.micCaption.textContent = `Mic transcript (listening): ${interim}`;
+        }
+    };
+
+    return recognition;
+}
+
+async function enableMic() {
+    if (state.micEnabled) {
+        return;
+    }
+
+    if (!state.speechRecognition) {
+        state.speechRecognition = initSpeechRecognition();
+    }
+    if (!state.speechRecognition) {
+        throw new Error("Speech recognition is not supported in this browser");
+    }
+
+    // Ask for microphone permission before starting recognition.
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Microphone API not available in this browser");
+    }
+
+    const media = await navigator.mediaDevices.getUserMedia({ audio: true });
+    media.getTracks().forEach((track) => track.stop());
+
+    state.micEnabled = true;
+    updateMicUi();
+
+    if (state.active) {
+        try {
+            state.speechRecognition.start();
+        } catch (error) {
+            // Ignore duplicate starts if recognition is already running.
+        }
+    }
+}
+
+function disableMic() {
+    state.micEnabled = false;
+    state.micListening = false;
+    if (state.speechRecognition) {
+        state.speechRecognition.onend = null;
+        try {
+            state.speechRecognition.stop();
+        } catch (error) {
+            // No-op if recognition is not active.
+        }
+        state.speechRecognition = initSpeechRecognition();
+    }
+    el.micCaption.textContent = "Mic transcript: waiting...";
+    updateMicUi();
+}
+
+async function toggleMic() {
+    if (state.micEnabled) {
+        disableMic();
+        return;
+    }
+    await enableMic();
+}
+
 function updateButtons() {
     el.startBtn.disabled = state.active;
     el.sampleBtn.disabled = !state.active;
     el.endBtn.disabled = !state.active;
     el.exportBtn.disabled = state.active;
+    el.micBtn.disabled = false;
 }
 
 function updateSummary(result) {
@@ -215,6 +369,13 @@ async function startSession() {
     addTranscriptLine("Interviewee", "Hello, I am ready to begin the interview.");
     updateButtons();
     startLiveProcessing();
+    if (state.micEnabled && state.speechRecognition) {
+        try {
+            state.speechRecognition.start();
+        } catch (error) {
+            // Ignore duplicate starts when already listening.
+        }
+    }
     el.statusText.textContent = "Live monitoring active";
 }
 
@@ -255,6 +416,13 @@ async function runSample() {
 
 async function endSession() {
     stopLiveProcessing();
+    if (state.speechRecognition && state.micListening) {
+        try {
+            state.speechRecognition.stop();
+        } catch (error) {
+            // No-op if recognition is already stopped.
+        }
+    }
     const report = await api("/session/end", { method: "POST" });
     state.active = false;
     state.requestInFlight = false;
@@ -281,9 +449,20 @@ async function exportSession() {
 el.startBtn.addEventListener("click", () => startSession().catch((e) => (el.statusText.textContent = e.message)));
 el.sampleBtn.addEventListener("click", () => runSample().catch((e) => (el.statusText.textContent = e.message)));
 el.endBtn.addEventListener("click", () => endSession().catch((e) => (el.statusText.textContent = e.message)));
+el.micBtn.addEventListener("click", () => toggleMic().catch((e) => (el.statusText.textContent = e.message)));
 el.exportBtn.addEventListener("click", () => exportSession().catch((e) => (el.statusText.textContent = e.message)));
-window.addEventListener("beforeunload", stopLiveProcessing);
+window.addEventListener("beforeunload", () => {
+    stopLiveProcessing();
+    if (state.speechRecognition && state.micListening) {
+        try {
+            state.speechRecognition.stop();
+        } catch (error) {
+            // No-op on unload.
+        }
+    }
+});
 
 updateButtons();
+updateMicUi();
 renderTranscript();
 checkHealth();

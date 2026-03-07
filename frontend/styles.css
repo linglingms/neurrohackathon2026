@@ -63,6 +63,20 @@ body {
     border: 1px solid rgba(174, 207, 237, 0.25);
 }
 
+.mic-pill {
+    margin-left: 8px;
+}
+
+.mic-pill-idle {
+    background: rgba(97, 135, 174, 0.2);
+    color: #bdd4ea;
+}
+
+.mic-pill-on {
+    background: rgba(0, 194, 156, 0.22);
+    color: #7ef2d4;
+}
+
 .pill-ok {
     background: rgba(0, 194, 156, 0.2);
     color: #7ef2d4;
@@ -92,6 +106,12 @@ body {
     color: #edfbff;
     margin-bottom: 10px;
     font-size: 1.05rem;
+}
+
+.mic-caption {
+    color: #b9d4ea;
+    font-size: 0.9rem;
+    margin-bottom: 10px;
 }
 
 .transcript-log {
