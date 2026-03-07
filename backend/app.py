@@ -70,10 +70,19 @@ def hardware_status():
     return jsonify({
         'connected': stream.connected,
         'port': stream.serial_port,
+        'available_ports': stream.list_available_ports(),
         'board': 'Cyton+Daisy',
         'channels': config.EEG_CHANNELS,
         'sampling_rate': config.SAMPLING_RATE,
         'error': last_hardware_error,
+    })
+
+
+@app.route('/api/hardware/ports', methods=['GET'])
+def hardware_ports():
+    return jsonify({
+        'configured_port': stream.serial_port,
+        'available_ports': stream.list_available_ports(),
     })
 
 
