@@ -6,7 +6,7 @@ import os
 SAMPLING_RATE = 125  # Hz — Cyton+Daisy runs at 125 Hz
 EEG_CHANNELS = 16
 BOARD_ID = 2  # OpenBCI Cyton+Daisy
-SERIAL_PORT = os.getenv('OPENBCI_PORT', 'COM3')
+SERIAL_PORT = os.getenv('OPENBCI_PORT', 'COM4')
 
 # Signal Processing
 FILTER_LOW_FREQ = 1  # Hz

@@ -62,14 +62,14 @@ class LieDetectorApp:
                 predictions.append(deception_prob)
 
         if predictions:
-            avg_probability = np.mean(predictions)
-            is_deceptive = avg_probability > config.DECEPTION_THRESHOLD
-            
+            avg_probability = float(np.mean(predictions))
+            is_deceptive = bool(avg_probability > config.DECEPTION_THRESHOLD)
+
             result = {
                 'deception_probability': avg_probability,
                 'is_deceptive': is_deceptive,
-                'confidence': max(avg_probability, 1 - avg_probability),
-                'predictions': predictions,
+                'confidence': float(max(avg_probability, 1 - avg_probability)),
+                'predictions': [float(p) for p in predictions],
                 'windows_processed': len(predictions),
             }
 
