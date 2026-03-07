@@ -40,9 +40,6 @@ The frontend uses `http://localhost:5000/api` by default.
 - `POST /api/session/process`: process one EEG batch
 - `POST /api/session/end`: end session and return summary
 - `POST /api/session/export`: export session summary/results to JSON
-- `GET /api/openbci/status`: OpenBCI connection status
-- `POST /api/openbci/connect`: connect to OpenBCI stream
-- `POST /api/openbci/disconnect`: disconnect OpenBCI stream
 
 ## Hardware Plan
 - OpenBCI headset for EEG capture
