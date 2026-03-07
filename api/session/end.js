@@ -8,7 +8,14 @@ export default function handler(req, res) {
   const session = getSession();
   const report = buildReport(session);
   if (!report) {
-    return res.status(400).json({ error: "No session data" });
+    return res.status(200).json({
+      session_started_at: session.startedAt,
+      session_ended_at: new Date().toISOString(),
+      total_windows: 0,
+      deceptive_windows: 0,
+      average_deception_probability: 0,
+      session_assessment: "No session data captured",
+    });
   }
 
   session.lastReport = report;

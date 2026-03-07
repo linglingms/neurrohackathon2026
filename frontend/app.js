@@ -433,7 +433,19 @@ async function endSession() {
             // No-op if recognition is already stopped.
         }
     }
-    const report = await api("/session/end", { method: "POST" });
+    let report;
+    try {
+        report = await api("/session/end", { method: "POST" });
+    } catch (error) {
+        report = {
+            total_windows: state.scores.length,
+            deceptive_windows: 0,
+            average_deception_probability: state.scores.length
+                ? state.scores.reduce((a, b) => a + b, 0) / state.scores.length
+                : 0,
+            session_assessment: "Interview ended locally (summary unavailable from API)",
+        };
+    }
     state.requestInFlight = false;
     updateButtons();
     addTranscriptLine("Interviewer", "Thank you. This concludes the interview.");
