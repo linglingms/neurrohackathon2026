@@ -166,12 +166,24 @@ async function checkHealth() {
 }
 
 async function startSession() {
+    let hardwareMessage = "";
+    try {
+        const hardware = await api("/hardware/connect", { method: "POST" });
+        if (hardware && (hardware.status === "connected" || hardware.status === "already_connected")) {
+            hardwareMessage = `Hardware: ${hardware.status.replace("_", " ")}`;
+        }
+    } catch (error) {
+        hardwareMessage = "Hardware unavailable, using mock EEG data";
+    }
+
     await api("/session/start", { method: "POST" });
     state.active = true;
     state.scores = [];
     state.lastResult = null;
     state.transcript = [];
-    el.reportBox.textContent = "Session started. Run one or more samples.";
+    el.reportBox.textContent = hardwareMessage
+        ? `Session started. ${hardwareMessage}. Run one or more samples.`
+        : "Session started. Run one or more samples.";
     el.statusText.textContent = "Collecting baseline...";
     addTranscriptLine("Interviewer", "Interview has started. Please introduce yourself.");
     addTranscriptLine("Interviewee", "Hello, I am ready to begin the interview.");
