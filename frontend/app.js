@@ -4,6 +4,7 @@ const apiOverride = params.get("api");
 const isLocalStatic = window.location.port === "8080" || host === "localhost" || host === "127.0.0.1";
 const API_BASE_URL = apiOverride || (isLocalStatic ? `http://${host}:5050/api` : `${window.location.origin}/api`);
 const MAX_TRANSCRIPT_ROWS = 160;
+const EEG_CAPTURE_INTERVAL_MS = 1000;
 
 const state = {
     active: false,
@@ -16,6 +17,7 @@ const state = {
     speechRecognition: null,
     lastAssignedRole: null,
     dataSource: "unknown",
+    eegTimer: null,
 };
 
 const el = {
@@ -223,6 +225,36 @@ function updateMicUi() {
     }
 }
 
+function stopEegCapture() {
+    if (state.eegTimer) {
+        clearInterval(state.eegTimer);
+        state.eegTimer = null;
+    }
+}
+
+async function captureEegWindow() {
+    if (!state.active || state.dataSource !== "openbci" || state.requestInFlight) {
+        return;
+    }
+
+    try {
+        await scoreUtterance();
+    } catch (error) {
+        el.statusText.textContent = `EEG capture error: ${error.message}`;
+    }
+}
+
+function startEegCapture() {
+    stopEegCapture();
+    if (state.dataSource !== "openbci") {
+        return;
+    }
+
+    state.eegTimer = setInterval(() => {
+        captureEegWindow();
+    }, EEG_CAPTURE_INTERVAL_MS);
+}
+
 function initSpeechRecognition() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -278,14 +310,19 @@ function initSpeechRecognition() {
                     continue;
                 }
 
-                scoreUtterance()
-                    .then((metrics) => {
-                        addTranscriptLine(speaker, cleanedText, metrics);
-                    })
-                    .catch((error) => {
-                        el.statusText.textContent = `Scoring error: ${error.message}`;
-                        addTranscriptLine(speaker, cleanedText, getLatestMetrics());
-                    });
+                const metrics = getLatestMetrics();
+                if (metrics) {
+                    addTranscriptLine(speaker, cleanedText, metrics);
+                } else {
+                    scoreUtterance()
+                        .then((freshMetrics) => {
+                            addTranscriptLine(speaker, cleanedText, freshMetrics);
+                        })
+                        .catch((error) => {
+                            el.statusText.textContent = `Scoring error: ${error.message}`;
+                            addTranscriptLine(speaker, cleanedText, null);
+                        });
+                }
             } else {
                 interim = text;
             }
@@ -474,6 +511,7 @@ async function startSession() {
     }
 
     updateButtons();
+    startEegCapture();
     if (state.micEnabled && state.speechRecognition) {
         try {
             state.speechRecognition.start();
@@ -492,6 +530,7 @@ async function runSample() {
 
 async function endSession() {
     state.active = false;
+    stopEegCapture();
     if (state.speechRecognition && state.micListening) {
         try {
             state.speechRecognition.stop();
@@ -539,6 +578,7 @@ el.endBtn.addEventListener("click", () => endSession().catch((e) => (el.statusTe
 el.micBtn.addEventListener("click", () => toggleMic().catch((e) => (el.statusText.textContent = e.message)));
 el.exportBtn.addEventListener("click", () => exportSession().catch((e) => (el.statusText.textContent = e.message)));
 window.addEventListener("beforeunload", () => {
+    stopEegCapture();
     if (state.speechRecognition && state.micListening) {
         try {
             state.speechRecognition.stop();
