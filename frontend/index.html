@@ -15,6 +15,14 @@
         <header class="header">
             <h1>NeuroSignal Interview Dashboard</h1>
             <p>Desktop and mobile biosignal scoring demo for OpenBCI + Jetson Nano</p>
+            <div class="top-status-strip">
+                <div id="headset-status" class="status-indicator">
+                    Headset: <span class="status-word status-word-bad">Disconnected</span>
+                </div>
+                <div id="openbci-status" class="status-indicator">
+                    OpenBCI Session: <span class="status-word status-word-bad">Not Started</span>
+                </div>
+            </div>
             <span id="health-pill" class="pill">Checking API...</span>
             <span id="mic-pill" class="pill mic-pill">Mic: Off</span>
         </header>

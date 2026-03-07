@@ -54,6 +54,37 @@ body {
     margin-bottom: 14px;
 }
 
+.top-status-strip {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin: 0 0 12px;
+}
+
+.status-indicator {
+    background: rgba(13, 27, 45, 0.78);
+    border: 1px solid rgba(159, 197, 232, 0.22);
+    border-radius: 9px;
+    padding: 7px 10px;
+    font-size: 0.84rem;
+    color: #cfe2f5;
+    font-weight: 600;
+}
+
+.status-word {
+    font-weight: 700;
+}
+
+.status-word-ok {
+    color: #7ef2d4;
+}
+
+.status-word-bad {
+    color: #ff9da9;
+}
+
 .pill {
     display: inline-block;
     padding: 6px 12px;
@@ -362,6 +393,14 @@ body {
 
     .header h1 {
         font-size: 1.45rem;
+    }
+
+    .top-status-strip {
+        justify-content: flex-start;
+    }
+
+    .status-indicator {
+        width: 100%;
     }
 
     .controls {

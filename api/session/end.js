@@ -7,6 +7,7 @@ export default function handler(req, res) {
 
   const session = getSession();
   const report = buildReport(session);
+  session.active = false;
   if (!report) {
     return res.status(200).json({
       session_started_at: session.startedAt,

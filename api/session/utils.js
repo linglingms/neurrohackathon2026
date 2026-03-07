@@ -2,7 +2,7 @@ const sessions = new Map();
 
 function getSession() {
   if (!sessions.has("default")) {
-    sessions.set("default", { results: [], startedAt: null, lastReport: null });
+    sessions.set("default", { results: [], startedAt: null, lastReport: null, active: false });
   }
   return sessions.get("default");
 }

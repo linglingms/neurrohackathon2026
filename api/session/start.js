@@ -9,6 +9,7 @@ export default function handler(req, res) {
   session.results = [];
   session.startedAt = new Date().toISOString();
   session.lastReport = null;
+  session.active = true;
 
-  return res.status(200).json({ status: "session_started", message: "New session initialized" });
+  return res.status(200).json({ status: "session_started", message: "New session initialized", session_active: true });
 }

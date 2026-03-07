@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 detector = LieDetectorApp()
 stream = OpenBCIStream(serial_port=config.SERIAL_PORT)
+session_active = False
 
 
 @app.route('/api/health', methods=['GET'])
@@ -29,6 +30,7 @@ def health():
         'status': 'healthy',
         'service': 'lie-detector-backend',
         'hardware_connected': stream.connected,
+        'session_active': session_active,
     })
 
 
@@ -66,8 +68,10 @@ def hardware_status():
 @app.route('/api/session/start', methods=['POST'])
 def start_session():
     # Start a new lie detection session
+    global session_active
     detector.start_session()
-    return jsonify({'status': 'session_started', 'message': 'New session initialized'})
+    session_active = True
+    return jsonify({'status': 'session_started', 'message': 'New session initialized', 'session_active': session_active})
 
 
 @app.route('/api/session/process', methods=['POST'])
@@ -94,7 +98,9 @@ def process_eeg():
 @app.route('/api/session/end', methods=['POST'])
 def end_session():
     # End the session and get report
+    global session_active
     report = detector.end_session()
+    session_active = False
     return jsonify(report if report else {'error': 'No session data'})
 
 

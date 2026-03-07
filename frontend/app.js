@@ -5,6 +5,7 @@ const isLocalStatic = window.location.port === "8080" || host === "localhost" ||
 const API_BASE_URL = apiOverride || (isLocalStatic ? `http://${host}:5050/api` : `${window.location.origin}/api`);
 const MAX_TRANSCRIPT_ROWS = 160;
 const EEG_CAPTURE_INTERVAL_MS = 1000;
+const STATUS_REFRESH_INTERVAL_MS = 5000;
 
 const state = {
     active: false,
@@ -18,10 +19,14 @@ const state = {
     lastAssignedRole: null,
     dataSource: "unknown",
     eegTimer: null,
+    hardwareConnected: false,
+    sessionActive: false,
 };
 
 const el = {
     health: document.getElementById("health-pill"),
+    headsetStatus: document.getElementById("headset-status"),
+    openbciStatus: document.getElementById("openbci-status"),
     micPill: document.getElementById("mic-pill"),
     startBtn: document.getElementById("start-btn"),
     sampleBtn: document.getElementById("sample-btn"),
@@ -39,6 +44,31 @@ const el = {
     transcriptLog: document.getElementById("transcript-log"),
     micCaption: document.getElementById("mic-caption"),
 };
+
+function setHeadsetStatus(connected) {
+    if (!el.headsetStatus) {
+        return;
+    }
+
+    const label = connected ? "Connected" : "Disconnected";
+    const statusClass = connected ? "status-word status-word-ok" : "status-word status-word-bad";
+    el.headsetStatus.innerHTML = `Headset: <span class="${statusClass}">${label}</span>`;
+}
+
+function setOpenBciStatus(started) {
+    if (!el.openbciStatus) {
+        return;
+    }
+
+    const label = started ? "Started" : "Not Started";
+    const statusClass = started ? "status-word status-word-ok" : "status-word status-word-bad";
+    el.openbciStatus.innerHTML = `OpenBCI Session: <span class="${statusClass}">${label}</span>`;
+}
+
+function updateConnectionStatus() {
+    setHeadsetStatus(!!state.hardwareConnected);
+    setOpenBciStatus(!!state.sessionActive);
+}
 
 function renderTranscript() {
     if (!state.transcript.length) {
@@ -462,12 +492,37 @@ function buildLocalSessionReport() {
 
 async function checkHealth() {
     try {
-        await api("/health");
+        const health = await api("/health");
         el.health.textContent = "API Online";
         el.health.className = "pill pill-ok";
+
+        if (typeof health.hardware_connected === "boolean") {
+            state.hardwareConnected = health.hardware_connected;
+        }
+
+        if (typeof health.session_active === "boolean") {
+            state.sessionActive = health.session_active;
+        }
+
+        // Some deployments may expose hardware details separately.
+        if (typeof health.hardware_connected !== "boolean") {
+            try {
+                const hardware = await api("/hardware/status");
+                if (typeof hardware.connected === "boolean") {
+                    state.hardwareConnected = hardware.connected;
+                }
+            } catch (error) {
+                // Ignore when hardware route is not available (for hosted serverless APIs).
+            }
+        }
+
+        updateConnectionStatus();
     } catch (error) {
         el.health.textContent = "API Offline";
         el.health.className = "pill pill-bad";
+        state.hardwareConnected = false;
+        state.sessionActive = false;
+        updateConnectionStatus();
     }
 }
 
@@ -478,10 +533,12 @@ async function startSession() {
         if (hardware && (hardware.status === "connected" || hardware.status === "already_connected")) {
             hardwareMessage = `Hardware: ${hardware.status.replace("_", " ")}`;
             state.dataSource = "openbci";
+            state.hardwareConnected = true;
         }
     } catch (error) {
         hardwareMessage = "Hardware unavailable, using mock EEG data";
         state.dataSource = "mock";
+        state.hardwareConnected = false;
     }
 
     if (!hardwareMessage) {
@@ -490,6 +547,7 @@ async function startSession() {
 
     await api("/session/start", { method: "POST" });
     state.active = true;
+    state.sessionActive = true;
     state.scores = [];
     state.lastResult = null;
     state.transcript = [];
@@ -511,6 +569,7 @@ async function startSession() {
     }
 
     updateButtons();
+    updateConnectionStatus();
     startEegCapture();
     if (state.micEnabled && state.speechRecognition) {
         try {
@@ -530,6 +589,7 @@ async function runSample() {
 
 async function endSession() {
     state.active = false;
+    state.sessionActive = false;
     stopEegCapture();
     if (state.speechRecognition && state.micListening) {
         try {
@@ -554,6 +614,7 @@ async function endSession() {
 
     state.requestInFlight = false;
     updateButtons();
+    updateConnectionStatus();
     el.reportBox.innerHTML = [
         `Data source: ${sourceLabel}`,
         `Total windows: ${report.total_windows}`,
@@ -591,4 +652,8 @@ window.addEventListener("beforeunload", () => {
 updateButtons();
 updateMicUi();
 renderTranscript();
+updateConnectionStatus();
 checkHealth();
+setInterval(() => {
+    checkHealth();
+}, STATUS_REFRESH_INTERVAL_MS);
