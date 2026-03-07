@@ -9,7 +9,11 @@ try:
     from backend.main import LieDetectorApp
     from backend.openbci_stream import OpenBCIStream
     import backend.config as config
-except ModuleNotFoundError:
+except ModuleNotFoundError as exc:
+    # Only fall back to local imports when package-style imports are unavailable.
+    # Re-raise dependency errors (e.g., missing 'serial') so the real fix is visible.
+    if exc.name and not exc.name.startswith('backend'):
+        raise
     from main import LieDetectorApp
     from openbci_stream import OpenBCIStream
     import config as config
