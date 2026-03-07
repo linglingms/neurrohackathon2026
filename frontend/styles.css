@@ -150,12 +150,6 @@ body {
     white-space: nowrap;
 }
 
-.transcript-text-cell {
-    text-align: left;
-    min-width: 250px;
-    color: #d7eafc;
-}
-
 .node-cell,
 .confidence-cell {
     color: #dff2ff;

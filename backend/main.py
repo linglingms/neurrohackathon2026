@@ -51,19 +51,33 @@ class LieDetectorApp:
             return None
 
         predictions = []
+        channel_averages = []
 
         for channel_idx in range(eeg_array.shape[0]):
             channel_data = eeg_array[channel_idx]
             windows = self.processor.process_batch(channel_data)
+            channel_predictions = []
 
             for window_features in windows:
                 feature_vector = np.array(list(window_features.values()))
                 deception_prob = self.model.predict(feature_vector)
                 predictions.append(deception_prob)
+                channel_predictions.append(deception_prob)
+
+            if channel_predictions:
+                channel_averages.append(float(np.mean(channel_predictions)))
 
         if predictions:
             avg_probability = float(np.mean(predictions))
             is_deceptive = bool(avg_probability > config.DECEPTION_THRESHOLD)
+
+            # Transcript UI expects eight nodes (Node 1..Node 8).
+            if channel_averages:
+                node_stress = channel_averages[:8]
+                if len(node_stress) < 8:
+                    node_stress.extend([avg_probability] * (8 - len(node_stress)))
+            else:
+                node_stress = [avg_probability] * 8
 
             result = {
                 'deception_probability': avg_probability,
@@ -71,6 +85,8 @@ class LieDetectorApp:
                 'confidence': float(max(avg_probability, 1 - avg_probability)),
                 'predictions': [float(p) for p in predictions],
                 'windows_processed': len(predictions),
+                'node_stress': [float(v) for v in node_stress],
+                'node_labels': [f'Node {i}' for i in range(1, 9)],
             }
 
             self.results.append(result)

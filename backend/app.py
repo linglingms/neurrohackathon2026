@@ -9,7 +9,7 @@ try:
     from backend.main import LieDetectorApp
     from backend.openbci_stream import OpenBCIStream
     import backend.config as config
-except ImportError:
+except ModuleNotFoundError:
     from main import LieDetectorApp
     from openbci_stream import OpenBCIStream
     import config as config
