@@ -33,21 +33,88 @@ function renderTranscript() {
         return;
     }
 
-    el.transcriptLog.innerHTML = state.transcript
-        .map(
-            (entry) =>
-                `<div class="transcript-entry">` +
-                `<span class="speaker speaker-${entry.speaker.toLowerCase()}">${entry.speaker}:</span> ` +
-                `<span class="transcript-line">${entry.text}</span>` +
-                `</div>`
-        )
+    const headerCells = ["Role", "Node 1", "Node 2", "Node 3", "Node 4", "Node 5", "Node 6", "Node 7", "Node 8", "Overall Confidence", "Transcript"];
+    const headerHtml = headerCells.map((label) => `<th>${label}</th>`).join("");
+
+    const rowsHtml = state.transcript
+        .map((entry) => {
+            const nodeCells = entry.nodes
+                .map((value) => `<td class="node-cell">${formatPercentCell(value)}</td>`)
+                .join("");
+
+            return [
+                "<tr>",
+                `<td><span class="speaker speaker-${entry.speaker.toLowerCase()}">${entry.speaker}</span></td>`,
+                nodeCells,
+                `<td class="confidence-cell">${formatPercentCell(entry.confidence)}</td>`,
+                `<td class="transcript-text-cell">${entry.text}</td>`,
+                "</tr>",
+            ].join("");
+        })
         .join("");
+
+    el.transcriptLog.innerHTML = [
+        '<table class="transcript-table">',
+        `<thead><tr>${headerHtml}</tr></thead>`,
+        `<tbody>${rowsHtml}</tbody>`,
+        "</table>",
+    ].join("");
 
     el.transcriptLog.scrollTop = el.transcriptLog.scrollHeight;
 }
 
-function addTranscriptLine(speaker, text) {
-    state.transcript.push({ speaker, text });
+function formatPercentCell(value) {
+    if (typeof value !== "number" || Number.isNaN(value)) {
+        return "--";
+    }
+    return `${Math.round(value)}%`;
+}
+
+function toPercent(value) {
+    if (typeof value !== "number" || Number.isNaN(value)) {
+        return null;
+    }
+    return Math.max(0, Math.min(100, value * 100));
+}
+
+function buildNodeStressPercentages(result) {
+    if (Array.isArray(result.node_stress) && result.node_stress.length >= 8) {
+        return result.node_stress.slice(0, 8).map((value) => toPercent(value));
+    }
+
+    if (Array.isArray(result.predictions) && result.predictions.length > 0) {
+        const values = result.predictions;
+        const chunkSize = Math.max(1, Math.floor(values.length / 8));
+        const nodes = [];
+
+        for (let i = 0; i < 8; i += 1) {
+            const start = i * chunkSize;
+            const end = i === 7 ? values.length : Math.min(values.length, start + chunkSize);
+            const chunk = values.slice(start, end);
+
+            if (!chunk.length) {
+                nodes.push(toPercent(result.deception_probability || 0));
+                continue;
+            }
+
+            const average = chunk.reduce((acc, value) => acc + value, 0) / chunk.length;
+            nodes.push(toPercent(average));
+        }
+
+        return nodes;
+    }
+
+    const overallPct = toPercent(result.deception_probability || 0);
+    return new Array(8).fill(overallPct);
+}
+
+function addTranscriptLine(speaker, text, metrics = null) {
+    const nodes = metrics && Array.isArray(metrics.nodes) && metrics.nodes.length === 8
+        ? metrics.nodes
+        : new Array(8).fill(null);
+    const confidence = metrics && typeof metrics.confidence === "number" ? metrics.confidence : null;
+
+    state.transcript.push({ speaker, text, nodes, confidence });
     renderTranscript();
 }
 
@@ -120,8 +187,12 @@ async function runSample() {
     state.lastResult = result;
     state.scores.push(result.deception_probability || 0);
     const scorePct = Math.round((result.deception_probability || 0) * 100);
-    addTranscriptLine("Interviewer", "Please describe your previous role and responsibilities.");
-    addTranscriptLine("Interviewee", `Answer received. Current stress score marker: ${scorePct}%.`);
+    const metrics = {
+        nodes: buildNodeStressPercentages(result),
+        confidence: toPercent(result.confidence || 0),
+    };
+    addTranscriptLine("Interviewer", "Please describe your previous role and responsibilities.", metrics);
+    addTranscriptLine("Interviewee", `Answer received. Current stress score marker: ${scorePct}%.`, metrics);
     updateSummary(result);
 }
 
