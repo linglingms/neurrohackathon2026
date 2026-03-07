@@ -3,12 +3,17 @@ const params = new URLSearchParams(window.location.search);
 const apiOverride = params.get("api");
 const isLocalStatic = window.location.port === "8080" || host === "localhost" || host === "127.0.0.1";
 const API_BASE_URL = apiOverride || (isLocalStatic ? `http://${host}:5050/api` : `${window.location.origin}/api`);
+const LIVE_SAMPLE_INTERVAL_MS = 1000;
+const MAX_TRANSCRIPT_ROWS = 160;
 
 const state = {
     active: false,
     scores: [],
     lastResult: null,
     transcript: [],
+    liveTimer: null,
+    requestInFlight: false,
+    sampleCount: 0,
 };
 
 const el = {
@@ -114,7 +119,26 @@ function addTranscriptLine(speaker, text, metrics = null) {
     const confidence = metrics && typeof metrics.confidence === "number" ? metrics.confidence : null;
 
     state.transcript.push({ speaker, text, nodes, confidence });
+    if (state.transcript.length > MAX_TRANSCRIPT_ROWS) {
+        state.transcript = state.transcript.slice(-MAX_TRANSCRIPT_ROWS);
+    }
     renderTranscript();
+}
+
+function stopLiveProcessing() {
+    if (state.liveTimer) {
+        clearInterval(state.liveTimer);
+        state.liveTimer = null;
+    }
+}
+
+function startLiveProcessing() {
+    stopLiveProcessing();
+    state.liveTimer = setInterval(() => {
+        processSample(true).catch((error) => {
+            el.statusText.textContent = `Live stream paused: ${error.message}`;
+        });
+    }, LIVE_SAMPLE_INTERVAL_MS);
 }
 
 function updateButtons() {
@@ -181,6 +205,8 @@ async function startSession() {
     state.scores = [];
     state.lastResult = null;
     state.transcript = [];
+    state.sampleCount = 0;
+    state.requestInFlight = false;
     el.reportBox.textContent = hardwareMessage
         ? `Session started. ${hardwareMessage}. Run one or more samples.`
         : "Session started. Run one or more samples.";
@@ -188,28 +214,50 @@ async function startSession() {
     addTranscriptLine("Interviewer", "Interview has started. Please introduce yourself.");
     addTranscriptLine("Interviewee", "Hello, I am ready to begin the interview.");
     updateButtons();
+    startLiveProcessing();
+    el.statusText.textContent = "Live monitoring active";
+}
+
+async function processSample(isLiveMode = false) {
+    if (!state.active || state.requestInFlight) {
+        return;
+    }
+
+    state.requestInFlight = true;
+    try {
+        const result = await api("/session/process", {
+            method: "POST",
+            body: JSON.stringify({}),
+        });
+        state.lastResult = result;
+        state.scores.push(result.deception_probability || 0);
+        state.sampleCount += 1;
+        const scorePct = Math.round((result.deception_probability || 0) * 100);
+        const metrics = {
+            nodes: buildNodeStressPercentages(result),
+            confidence: toPercent(result.confidence || 0),
+        };
+
+        if (!isLiveMode || state.sampleCount % 4 === 1) {
+            addTranscriptLine("Interviewer", "Please continue with your response.", metrics);
+        }
+        addTranscriptLine("Interviewee", `Live sample ${state.sampleCount}: stress marker ${scorePct}%.`, metrics);
+
+        updateSummary(result);
+    } finally {
+        state.requestInFlight = false;
+    }
 }
 
 async function runSample() {
-    const result = await api("/session/process", {
-        method: "POST",
-        body: JSON.stringify({}),
-    });
-    state.lastResult = result;
-    state.scores.push(result.deception_probability || 0);
-    const scorePct = Math.round((result.deception_probability || 0) * 100);
-    const metrics = {
-        nodes: buildNodeStressPercentages(result),
-        confidence: toPercent(result.confidence || 0),
-    };
-    addTranscriptLine("Interviewer", "Please describe your previous role and responsibilities.", metrics);
-    addTranscriptLine("Interviewee", `Answer received. Current stress score marker: ${scorePct}%.`, metrics);
-    updateSummary(result);
+    await processSample(false);
 }
 
 async function endSession() {
+    stopLiveProcessing();
     const report = await api("/session/end", { method: "POST" });
     state.active = false;
+    state.requestInFlight = false;
     updateButtons();
     addTranscriptLine("Interviewer", "Thank you. This concludes the interview.");
     addTranscriptLine("Interviewee", "Thank you for your time.");
@@ -234,6 +282,7 @@ el.startBtn.addEventListener("click", () => startSession().catch((e) => (el.stat
 el.sampleBtn.addEventListener("click", () => runSample().catch((e) => (el.statusText.textContent = e.message)));
 el.endBtn.addEventListener("click", () => endSession().catch((e) => (el.statusText.textContent = e.message)));
 el.exportBtn.addEventListener("click", () => exportSession().catch((e) => (el.statusText.textContent = e.message)));
+window.addEventListener("beforeunload", stopLiveProcessing);
 
 updateButtons();
 renderTranscript();
