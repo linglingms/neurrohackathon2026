@@ -37,12 +37,31 @@ let activeApiBaseUrl = API_BASE_URL;
 const MAX_TRANSCRIPT_ROWS = 160;
 const EEG_CAPTURE_INTERVAL_MS = 1000;
 const STATUS_REFRESH_INTERVAL_MS = 5000;
+const TRANSCRIPT_VISUALIZATION_OPTIONS = [
+    "time series",
+    "fft plot",
+    "accelerometer",
+    "cyton signal",
+    "focus widget",
+    "network",
+    "band power",
+    "head plot",
+    "EMG",
+    "EMG joystick",
+    "spectrogram",
+    "pulse",
+    "digital read",
+    "analog read",
+    "packet loss",
+    "marker",
+];
 
 const state = {
     active: false,
     scores: [],
     lastResult: null,
     transcript: [],
+    selectedTranscriptRow: null,
     requestInFlight: false,
     micEnabled: false,
     micListening: false,
@@ -52,6 +71,7 @@ const state = {
     eegTimer: null,
     hardwareConnected: false,
     hardwareSource: null,
+    openbciConnected: false,
     lslConnected: false,
     lslStreamName: null,
     sessionActive: false,
@@ -91,6 +111,8 @@ const el = {
     confidenceValue: document.getElementById("confidence-value"),
     reportBox: document.getElementById("report-box"),
     transcriptLog: document.getElementById("transcript-log"),
+    transcriptGraphTitle: document.getElementById("transcript-graph-title"),
+    transcriptGraphBody: document.getElementById("transcript-graph-body"),
     micCaption: document.getElementById("mic-caption"),
 };
 
@@ -119,14 +141,14 @@ function setHeadsetStatus(connected) {
     el.headsetStatus.innerHTML = `Headset: <span class="${statusClass}">${label}</span>`;
 }
 
-function setOpenBciStatus(started) {
+function setOpenBciStatus(connected) {
     if (!el.openbciStatus) {
         return;
     }
 
-    const label = started ? "Started" : "Not Started";
-    const statusClass = started ? "status-word status-word-ok" : "status-word status-word-bad";
-    el.openbciStatus.innerHTML = `OpenBCI Session: <span class="${statusClass}">${label}</span>`;
+    const label = connected ? "Connected" : "Disconnected";
+    const statusClass = connected ? "status-word status-word-ok" : "status-word status-word-bad";
+    el.openbciStatus.innerHTML = `OpenBCI: <span class="${statusClass}">${label}</span>`;
 }
 
 function setLslStatus(connected, streamName = null) {
@@ -142,7 +164,39 @@ function setLslStatus(connected, streamName = null) {
 function updateConnectionStatus() {
     setHeadsetStatus(!!state.hardwareConnected);
     setLslStatus(!!state.lslConnected, state.lslStreamName);
-    setOpenBciStatus(!!state.sessionActive);
+    setOpenBciStatus(!!state.openbciConnected);
+}
+
+function getStartReadiness() {
+    return {
+        micOn: !!state.micEnabled,
+        apiOn: !!state.apiOnline,
+        headsetConnected: !!state.hardwareConnected,
+        lslConnected: !!state.lslConnected,
+        openbciConnected: !!state.openbciConnected,
+    };
+}
+
+function canStartInterview() {
+    const readiness = getStartReadiness();
+    return readiness.micOn
+        && readiness.apiOn
+        && readiness.headsetConnected
+        && readiness.lslConnected
+        && readiness.openbciConnected;
+}
+
+function buildPreflightMessage() {
+    const readiness = getStartReadiness();
+    const missing = [];
+
+    if (!readiness.micOn) missing.push("Mic ON");
+    if (!readiness.apiOn) missing.push("API Online");
+    if (!readiness.headsetConnected) missing.push("Headset Connected");
+    if (!readiness.lslConnected) missing.push("LSL Connected");
+    if (!readiness.openbciConnected) missing.push("OpenBCI Connected");
+
+    return missing.length ? `Start locked. Missing: ${missing.join(", ")}` : null;
 }
 
 function updateSourceModeUi() {
@@ -154,40 +208,52 @@ function updateSourceModeUi() {
     if (mode === "lsl") {
         el.modeHelpText.textContent = "LSL mode selected: OpenBCI/LSL app must be open and actively streaming.";
         el.portSelect.disabled = true;
+        updateButtons();
         return;
     }
 
     if (mode === "serial") {
         el.modeHelpText.textContent = "Serial mode selected: close OpenBCI GUI/LSL app before connecting to COM port.";
         el.portSelect.disabled = false;
+        updateButtons();
         return;
     }
 
     el.modeHelpText.textContent = "Auto mode selected: backend tries LSL first, then serial port fallback.";
     el.portSelect.disabled = false;
+    updateButtons();
 }
 
 function renderTranscript() {
     if (!state.transcript.length) {
         el.transcriptLog.innerHTML = '<div class="transcript-empty">Transcript will appear after the interview starts.</div>';
+        renderTranscriptGraph();
         return;
     }
 
-    const headerCells = ["Role", "Transcription", "Node 1", "Node 2", "Node 3", "Node 4", "Node 5", "Node 6", "Node 7", "Node 8", "Overall Confidence"];
+    const headerCells = ["View", "Role", "1", "2", "3", "4", "5", "6", "7", "8"];
     const headerHtml = headerCells.map((label) => `<th>${label}</th>`).join("");
 
+    if (state.selectedTranscriptRow === null || state.selectedTranscriptRow >= state.transcript.length) {
+        state.selectedTranscriptRow = Math.max(0, state.transcript.length - 1);
+    }
+
     const rowsHtml = state.transcript
-        .map((entry) => {
+        .map((entry, index) => {
             const nodeCells = entry.nodes
                 .map((value) => `<td class="node-cell">${formatPercentCell(value)}</td>`)
                 .join("");
 
+            const selectedOption = entry.visualization || TRANSCRIPT_VISUALIZATION_OPTIONS[0];
+            const optionHtml = TRANSCRIPT_VISUALIZATION_OPTIONS
+                .map((opt) => `<option value="${opt}"${opt === selectedOption ? " selected" : ""}>${opt}</option>`)
+                .join("");
+
             return [
-                "<tr>",
+                `<tr class="${index === state.selectedTranscriptRow ? "transcript-row-active" : ""}">`,
+                `<td><select class="transcript-view-select" data-row-index="${index}">${optionHtml}</select></td>`,
                 `<td><span class="speaker speaker-${entry.speaker.toLowerCase()}">${entry.speaker}</span></td>`,
-                `<td class="transcription-cell">${entry.text}</td>`,
                 nodeCells,
-                `<td class="confidence-cell">${formatPercentCell(entry.confidence)}</td>`,
                 "</tr>",
             ].join("");
         })
@@ -201,6 +267,35 @@ function renderTranscript() {
     ].join("");
 
     el.transcriptLog.scrollTop = el.transcriptLog.scrollHeight;
+    renderTranscriptGraph();
+}
+
+function renderTranscriptGraph() {
+    if (!el.transcriptGraphTitle || !el.transcriptGraphBody) {
+        return;
+    }
+
+    if (!state.transcript.length || state.selectedTranscriptRow === null) {
+        el.transcriptGraphTitle.textContent = "Row Graph";
+        el.transcriptGraphBody.innerHTML = '<div class="transcript-empty">Select a transcript row visualization to view chart data.</div>';
+        return;
+    }
+
+    const row = state.transcript[state.selectedTranscriptRow];
+    if (!row) {
+        return;
+    }
+
+    const values = row.nodes.map((value) => (typeof value === "number" && !Number.isNaN(value) ? value : 0));
+    const bars = values
+        .map((value, idx) => {
+            const height = Math.max(6, Math.round(value));
+            return `<div class="graph-bar-wrap"><span class="graph-bar-label">N${idx + 1}</span><div class="graph-bar" style="height:${height}%"></div></div>`;
+        })
+        .join("");
+
+    el.transcriptGraphTitle.textContent = `Row ${state.selectedTranscriptRow + 1}: ${row.speaker} - ${row.visualization || TRANSCRIPT_VISUALIZATION_OPTIONS[0]}`;
+    el.transcriptGraphBody.innerHTML = `<div class="transcript-graph-bars">${bars}</div>`;
 }
 
 function formatPercentCell(value) {
@@ -310,11 +405,18 @@ function addTranscriptLine(speaker, text, metrics = null) {
         : new Array(8).fill(null);
     const confidence = metrics && typeof metrics.confidence === "number" ? metrics.confidence : null;
 
-    state.transcript.push({ speaker, text, nodes, confidence });
+    state.transcript.push({
+        speaker,
+        text,
+        nodes,
+        confidence,
+        visualization: TRANSCRIPT_VISUALIZATION_OPTIONS[0],
+    });
     state.lastAssignedRole = speaker;
     if (state.transcript.length > MAX_TRANSCRIPT_ROWS) {
         state.transcript = state.transcript.slice(-MAX_TRANSCRIPT_ROWS);
     }
+    state.selectedTranscriptRow = Math.max(0, state.transcript.length - 1);
     renderTranscript();
 }
 
@@ -338,6 +440,7 @@ function updateMicUi() {
         el.micPill.textContent = "Mic: Off";
         el.micPill.className = "pill mic-pill";
         el.micBtn.textContent = "Enable Microphone";
+        updateButtons();
         return;
     }
 
@@ -350,6 +453,8 @@ function updateMicUi() {
         el.micPill.className = "pill mic-pill mic-pill-idle";
         el.micBtn.textContent = "Disable Microphone";
     }
+
+    updateButtons();
 }
 
 function stopEegCapture() {
@@ -520,11 +625,18 @@ async function toggleMic() {
 }
 
 function updateButtons() {
-    el.startBtn.disabled = state.active;
+    el.startBtn.disabled = state.active || !canStartInterview();
     el.sampleBtn.disabled = true;
     el.endBtn.disabled = !state.active;
     el.exportBtn.disabled = state.active;
     el.micBtn.disabled = false;
+
+    if (!state.active && el.statusText) {
+        const preflight = buildPreflightMessage();
+        if (preflight) {
+            el.statusText.textContent = preflight;
+        }
+    }
 }
 
 function updateSummary(result) {
@@ -691,6 +803,7 @@ async function connectHardware() {
         state.hardwareSource = data.source || state.hardwareSource;
         state.lslConnected = state.hardwareSource === "lsl";
         state.lslStreamName = state.lslConnected ? state.hardwarePort : null;
+        state.openbciConnected = true;
         state.hardwareError = null;
         updateHardwareUI(true, state.hardwarePort, {
             apiOnline: true,
@@ -700,13 +813,16 @@ async function connectHardware() {
         state.hardwareConnected = true;
         state.dataSource = state.hardwareSource === "lsl" ? "live_lsl" : "openbci";
         updateConnectionStatus();
+        updateButtons();
     } catch (error) {
         state.hardwareError = error.message;
+        state.openbciConnected = false;
         updateHardwareUI(false, state.hardwarePort, {
             apiOnline: true,
             error: state.hardwareError,
             source: state.hardwareSource,
         });
+        updateButtons();
     } finally {
         el.hwConnectBtn.disabled = false;
         el.hwConnectBtn.textContent = "Connect";
@@ -720,10 +836,12 @@ async function disconnectHardware() {
         updateHardwareUI(false, null, { apiOnline: true, error: null });
         state.hardwareConnected = false;
         state.hardwareSource = null;
+        state.openbciConnected = false;
         state.lslConnected = false;
         state.lslStreamName = null;
         state.hardwarePort = null;
         updateConnectionStatus();
+        updateButtons();
         scanPorts();
     } catch (error) {
         el.hwMessage.textContent = `Disconnect failed — ${error.message}`;
@@ -800,6 +918,7 @@ async function checkHealth() {
         } else {
             state.lslConnected = state.hardwareSource === "lsl";
         }
+        state.openbciConnected = state.hardwareConnected || state.hardwareSource === "serial" || state.hardwareSource === "lsl";
 
         if (typeof health.lsl_stream_name === "string" || health.lsl_stream_name === null) {
             state.lslStreamName = health.lsl_stream_name;
@@ -828,6 +947,7 @@ async function checkHealth() {
             if (typeof hardware.lsl_connected === "boolean") {
                 state.lslConnected = hardware.lsl_connected;
             }
+            state.openbciConnected = state.hardwareConnected || state.hardwareSource === "serial" || state.hardwareSource === "lsl";
             if (typeof hardware.lsl_stream_name === "string" || hardware.lsl_stream_name === null) {
                 state.lslStreamName = hardware.lsl_stream_name;
             }
@@ -855,6 +975,7 @@ async function checkHealth() {
             error: state.hardwareError,
             source: state.hardwareSource,
         });
+        updateButtons();
     } catch (error) {
         state.apiOnline = false;
         el.health.textContent = "API Offline";
@@ -867,10 +988,15 @@ async function checkHealth() {
             error: state.hardwareError,
             source: state.hardwareSource,
         });
+        updateButtons();
     }
 }
 
 async function startSession() {
+    if (!canStartInterview()) {
+        throw new Error(buildPreflightMessage() || "Start prerequisites not met");
+    }
+
     let hardwareMessage = "";
     let hardwareConnected = false;
     const mode = (el.sourceSelect && el.sourceSelect.value) || "auto";
@@ -931,6 +1057,7 @@ async function startSession() {
     state.scores = [];
     state.lastResult = null;
     state.transcript = [];
+    state.selectedTranscriptRow = null;
     state.lastAssignedRole = null;
     state.requestInFlight = false;
     el.reportBox.textContent = hardwareMessage
@@ -1026,6 +1153,21 @@ el.micBtn.addEventListener("click", () => toggleMic().catch((e) => (el.statusTex
 el.exportBtn.addEventListener("click", () => exportSession().catch((e) => (el.statusText.textContent = e.message)));
 el.hwConnectBtn.addEventListener("click", () => connectHardware());
 el.hwDisconnectBtn.addEventListener("click", () => disconnectHardware());
+el.transcriptLog.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLSelectElement) || !target.classList.contains("transcript-view-select")) {
+        return;
+    }
+
+    const index = Number(target.getAttribute("data-row-index"));
+    if (Number.isNaN(index) || !state.transcript[index]) {
+        return;
+    }
+
+    state.transcript[index].visualization = target.value;
+    state.selectedTranscriptRow = index;
+    renderTranscript();
+});
 if (el.sourceSelect) {
     el.sourceSelect.addEventListener("change", updateSourceModeUi);
 }
