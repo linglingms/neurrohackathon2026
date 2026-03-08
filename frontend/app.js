@@ -327,13 +327,26 @@ function updateConnectionStatus() {
     setOpenBciStatus(!!state.openbciConnected);
 }
 
+function getSelectedSourceMode() {
+    return (el.sourceSelect && el.sourceSelect.value) || "auto";
+}
+
 function getStartReadiness() {
+    const sourceMode = getSelectedSourceMode();
+    const lslConnected = !!state.lslConnected;
+    const openbciConnected = !!state.openbciConnected;
+    const sourceReady = sourceMode === "lsl"
+        ? lslConnected
+        : (sourceMode === "serial" ? openbciConnected : (lslConnected || openbciConnected));
+
     return {
         micOn: !!state.micEnabled,
         apiOn: !!state.apiOnline,
         headsetConnected: !!state.hardwareConnected,
-        lslConnected: !!state.lslConnected,
-        openbciConnected: !!state.openbciConnected,
+        lslConnected,
+        openbciConnected,
+        sourceMode,
+        sourceReady,
     };
 }
 
@@ -342,8 +355,7 @@ function canStartInterview() {
     return readiness.micOn
         && readiness.apiOn
         && readiness.headsetConnected
-        && readiness.lslConnected
-        && readiness.openbciConnected;
+        && readiness.sourceReady;
 }
 
 function buildPreflightMessage() {
@@ -353,8 +365,15 @@ function buildPreflightMessage() {
     if (!readiness.micOn) missing.push("Mic ON");
     if (!readiness.apiOn) missing.push("API Online");
     if (!readiness.headsetConnected) missing.push("Headset Connected");
-    if (!readiness.lslConnected) missing.push("LSL Connected");
-    if (!readiness.openbciConnected) missing.push("OpenBCI Connected");
+    if (!readiness.sourceReady) {
+        if (readiness.sourceMode === "lsl") {
+            missing.push("LSL Connected");
+        } else if (readiness.sourceMode === "serial") {
+            missing.push("OpenBCI Connected");
+        } else {
+            missing.push("LSL or OpenBCI Connected");
+        }
+    }
 
     return missing.length ? `Start locked. Missing: ${missing.join(", ")}` : null;
 }
