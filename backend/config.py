@@ -21,6 +21,14 @@ ALPHA = (8, 12)
 BETA = (12, 30)
 GAMMA = (30, 100)
 
+# Stress scoring bands and baseline behavior
+STRESS_ALPHA_BAND = (8, 13)
+STRESS_BETA_BAND = (13, 30)
+STRESS_BASELINE_WINDOWS = int(os.getenv('STRESS_BASELINE_WINDOWS', '30'))
+STRESS_CONFIDENCE_STD_REF = float(os.getenv('STRESS_CONFIDENCE_STD_REF', '0.18'))
+STRESS_CONFIDENCE_RATIO_SEP_REF = float(os.getenv('STRESS_CONFIDENCE_RATIO_SEP_REF', '0.35'))
+STRESS_CONFIDENCE_POWER_REF = float(os.getenv('STRESS_CONFIDENCE_POWER_REF', '25.0'))
+
 # Model Configuration
 MODEL_PATH = "models/lie_detector_model.h5"
 SCALER_PATH = "models/scaler.pkl"
