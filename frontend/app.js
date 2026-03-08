@@ -548,6 +548,15 @@ function formatPercentCell(value) {
     return `${Math.round(value)}%`;
 }
 
+function escapeHtml(value) {
+    return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
 function toPercent(value) {
     if (typeof value !== "number" || Number.isNaN(value)) {
         return null;
@@ -651,6 +660,7 @@ function addTranscriptLine(speaker, text, metrics = null, timing = null) {
         ? metrics.nodes
         : new Array(8).fill(null);
     const confidence = metrics && typeof metrics.confidence === "number" ? metrics.confidence : null;
+    const stress = metrics && typeof metrics.stress === "number" ? metrics.stress : null;
 
     const turnEndedAt = timing && typeof timing.turnEndedAt === "number"
         ? timing.turnEndedAt
@@ -663,6 +673,7 @@ function addTranscriptLine(speaker, text, metrics = null, timing = null) {
         speaker,
         text,
         nodes,
+        stress,
         confidence,
         timestamp: formatTurnTimestamp(turnEndedAt),
         timeframe: buildTurnTimeframe(turnStartedAt, turnEndedAt),
@@ -683,6 +694,7 @@ function getLatestMetrics() {
 
     return {
         nodes: buildNodeStressPercentages(state.lastResult),
+        stress: toPercent(state.lastResult.deception_probability || 0),
         confidence: toPercent(state.lastResult.confidence || 0),
     };
 }
@@ -1180,6 +1192,7 @@ async function scoreUtterance() {
 
         return {
             nodes: buildNodeStressPercentages(result),
+            stress: toPercent(result.deception_probability || 0),
             confidence: toPercent(result.confidence || 0),
         };
     } finally {
@@ -1200,6 +1213,64 @@ function buildLocalSessionReport() {
             ? (avg > 0.7 ? "Likely Deceptive" : "Likely Truthful")
             : "No session data captured",
     };
+}
+
+function formatTablePercent(value) {
+    if (typeof value !== "number" || Number.isNaN(value)) {
+        return "--";
+    }
+    return `${value.toFixed(1)}%`;
+}
+
+function buildTopStatementRows(entries, metricKey) {
+    const metricLabel = metricKey === "stress" ? "Stress" : "Confidence";
+
+    const ranked = entries
+        .filter((entry) => entry && entry.speaker === "Interviewee")
+        .filter((entry) => typeof entry[metricKey] === "number" && !Number.isNaN(entry[metricKey]))
+        .sort((a, b) => b[metricKey] - a[metricKey])
+        .slice(0, 5);
+
+    if (!ranked.length) {
+        return `<tr><td colspan="3" class="report-table-empty">No interviewee statements with ${metricLabel.toLowerCase()} data.</td></tr>`;
+    }
+
+    return ranked
+        .map((entry, index) => {
+            const statement = escapeHtml(entry.text || "(no transcript text)");
+            return [
+                "<tr>",
+                `<td>${index + 1}</td>`,
+                `<td class="report-statement-cell">${statement}</td>`,
+                `<td>${formatTablePercent(entry[metricKey])}</td>`,
+                "</tr>",
+            ].join("");
+        })
+        .join("");
+}
+
+function buildTopStatementsSection() {
+    const topStressRows = buildTopStatementRows(state.transcript, "stress");
+    const topConfidenceRows = buildTopStatementRows(state.transcript, "confidence");
+
+    return [
+        '<div class="report-tables-wrap">',
+        '<div class="report-table-block">',
+        '<h4>Top 5 Interviewee Statements by Stress %</h4>',
+        '<table class="report-table">',
+        '<thead><tr><th>#</th><th>Statement</th><th>Stress %</th></tr></thead>',
+        `<tbody>${topStressRows}</tbody>`,
+        '</table>',
+        '</div>',
+        '<div class="report-table-block">',
+        '<h4>Top 5 Interviewee Statements by Confidence %</h4>',
+        '<table class="report-table">',
+        '<thead><tr><th>#</th><th>Statement</th><th>Confidence %</th></tr></thead>',
+        `<tbody>${topConfidenceRows}</tbody>`,
+        '</table>',
+        '</div>',
+        '</div>',
+    ].join("");
 }
 
 async function checkHealth() {
@@ -1464,12 +1535,15 @@ async function endSession() {
     updateConnectionStatus();
     renderLiveGraph();
     el.reportBox.innerHTML = [
-        `Data source: ${sourceLabel}`,
-        `Total windows: ${report.total_windows}`,
-        `Deceptive windows: ${report.deceptive_windows}`,
-        `Average probability: ${(report.average_deception_probability * 100).toFixed(1)}%`,
-        `Assessment: ${report.session_assessment}`,
-    ].join("<br>");
+        '<div class="report-summary">',
+        `<div>Data source: ${sourceLabel}</div>`,
+        `<div>Total windows: ${report.total_windows}</div>`,
+        `<div>Deceptive windows: ${report.deceptive_windows}</div>`,
+        `<div>Average probability: ${(report.average_deception_probability * 100).toFixed(1)}%</div>`,
+        `<div>Assessment: ${report.session_assessment}</div>`,
+        '</div>',
+        buildTopStatementsSection(),
+    ].join("");
 }
 
 async function exportSession() {
