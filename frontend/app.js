@@ -82,6 +82,8 @@ const state = {
     hardwarePort: null,
     hardwareError: null,
     liveVisualization: TRANSCRIPT_VISUALIZATION_OPTIONS[0],
+    liveNodeIndex: 0,
+    liveNodeHistory: Array.from({ length: 8 }, () => []),
     socketConnected: false,
     lslActive: false,
 };
@@ -123,8 +125,11 @@ const el = {
     liveGraphStatus: document.getElementById("live-graph-status"),
     liveGraphBars: document.getElementById("live-graph-bars"),
     liveGraphSelect: document.getElementById("live-graph-select"),
+    liveNodePicker: document.getElementById("live-node-picker"),
     micCaption: document.getElementById("mic-caption"),
 };
+
+const LIVE_NODE_HISTORY_LIMIT = 24;
 
 function buildGraphBars(values, barClass = "graph-bar") {
     return values
@@ -141,26 +146,56 @@ function renderLiveGraph() {
     }
 
     const selectedView = state.liveVisualization || TRANSCRIPT_VISUALIZATION_OPTIONS[0];
+    const selectedNode = state.liveNodeIndex + 1;
     const activeLiveSession = state.active && (state.dataSource === "openbci" || state.dataSource === "live_lsl");
-    const hasLatestResult = !!state.lastResult;
+    const nodeHistory = Array.isArray(state.liveNodeHistory[state.liveNodeIndex])
+        ? state.liveNodeHistory[state.liveNodeIndex]
+        : [];
+    const hasNodeHistory = nodeHistory.length > 0;
 
     el.liveGraphTitle.textContent = activeLiveSession
-        ? `Live OpenBCI Graph: ${selectedView}`
-        : `Live OpenBCI Graph (Pre-Start): ${selectedView}`;
+        ? `Live OpenBCI Graph: ${selectedView} (Node ${selectedNode})`
+        : `Live OpenBCI Graph (Pre-Start): ${selectedView} (Node ${selectedNode})`;
 
-    if (!activeLiveSession || !hasLatestResult) {
+    if (el.liveNodePicker) {
+        const buttons = el.liveNodePicker.querySelectorAll(".live-node-btn");
+        buttons.forEach((button) => {
+            const index = Number(button.getAttribute("data-node-index"));
+            button.classList.toggle("is-active", index === state.liveNodeIndex);
+        });
+    }
+
+    if (!activeLiveSession || !hasNodeHistory) {
         el.liveGraphStatus.textContent = activeLiveSession
-            ? "Session active. Waiting for first EEG window..."
+            ? `Session active. Waiting for Node ${selectedNode} EEG window...`
             : "Waiting for active session and OpenBCI/LSL EEG.";
-        el.liveGraphBars.innerHTML = getBlankGraphBars()
-            .map((barHtml, idx) => `<div class="graph-bar-wrap"><span class="graph-bar-label">N${idx + 1}</span>${barHtml}</div>`)
-            .join("");
+        el.liveGraphBars.innerHTML = '<div class="live-single-graph-empty">No live node data yet.</div>';
         return;
     }
 
-    const values = buildNodeStressPercentages(state.lastResult).map((value) => (typeof value === "number" && !Number.isNaN(value) ? value : 0));
-    el.liveGraphStatus.textContent = "Live EEG values streaming from latest OpenBCI/LSL window.";
-    el.liveGraphBars.innerHTML = buildGraphBars(values, "graph-bar");
+    const trendBars = nodeHistory
+        .map((value, idx) => {
+            const normalized = typeof value === "number" && !Number.isNaN(value) ? value : 0;
+            const height = Math.max(4, Math.round(normalized));
+            return `<div class="live-trend-bar-wrap"><div class="live-trend-bar" style="height:${height}%" title="Sample ${idx + 1}: ${Math.round(normalized)}%"></div></div>`;
+        })
+        .join("");
+
+    const latest = nodeHistory[nodeHistory.length - 1] || 0;
+    el.liveGraphStatus.textContent = `Live Node ${selectedNode}: ${Math.round(latest)}% (${nodeHistory.length} samples)`;
+    el.liveGraphBars.innerHTML = `<div class="live-trend-grid">${trendBars}</div>`;
+}
+
+function updateLiveNodeHistory(result) {
+    const values = buildNodeStressPercentages(result).map((value) => (typeof value === "number" && !Number.isNaN(value) ? value : 0));
+    for (let i = 0; i < 8; i += 1) {
+        const bucket = state.liveNodeHistory[i] || [];
+        bucket.push(values[i] || 0);
+        if (bucket.length > LIVE_NODE_HISTORY_LIMIT) {
+            bucket.shift();
+        }
+        state.liveNodeHistory[i] = bucket;
+    }
 }
 
 function setApiBaseLabel(baseUrl, online) {
@@ -879,6 +914,7 @@ function updateSummary(result) {
         ? "Likely elevated cognitive stress"
         : "Likely lower cognitive stress";
 
+    updateLiveNodeHistory(result);
     renderLiveGraph();
 }
 
@@ -1297,6 +1333,8 @@ async function startSession() {
     state.transcript = [];
     state.selectedTranscriptRow = null;
     state.lastAssignedRole = null;
+    state.liveNodeHistory = Array.from({ length: 8 }, () => []);
+    state.liveNodeIndex = 0;
     state.sessionStartedAt = Date.now();
     state.speechTurnStartedAt = null;
     state.requestInFlight = false;
@@ -1437,6 +1475,22 @@ if (el.liveGraphSelect) {
     el.liveGraphSelect.value = state.liveVisualization;
     el.liveGraphSelect.addEventListener("change", () => {
         state.liveVisualization = el.liveGraphSelect.value;
+        renderLiveGraph();
+    });
+}
+if (el.liveNodePicker) {
+    el.liveNodePicker.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement) || !target.classList.contains("live-node-btn")) {
+            return;
+        }
+
+        const nextIndex = Number(target.getAttribute("data-node-index"));
+        if (Number.isNaN(nextIndex) || nextIndex < 0 || nextIndex > 7) {
+            return;
+        }
+
+        state.liveNodeIndex = nextIndex;
         renderLiveGraph();
     });
 }

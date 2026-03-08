@@ -119,15 +119,18 @@
                     </label>
                 </div>
                 <div id="live-graph-status" class="transcript-preview-note">Waiting for active session and OpenBCI/LSL EEG.</div>
-                <div id="live-graph-bars" class="transcript-graph-bars">
-                    <div class="graph-bar-wrap"><span class="graph-bar-label">N1</span><div class="graph-bar graph-bar-empty"></div></div>
-                    <div class="graph-bar-wrap"><span class="graph-bar-label">N2</span><div class="graph-bar graph-bar-empty"></div></div>
-                    <div class="graph-bar-wrap"><span class="graph-bar-label">N3</span><div class="graph-bar graph-bar-empty"></div></div>
-                    <div class="graph-bar-wrap"><span class="graph-bar-label">N4</span><div class="graph-bar graph-bar-empty"></div></div>
-                    <div class="graph-bar-wrap"><span class="graph-bar-label">N5</span><div class="graph-bar graph-bar-empty"></div></div>
-                    <div class="graph-bar-wrap"><span class="graph-bar-label">N6</span><div class="graph-bar graph-bar-empty"></div></div>
-                    <div class="graph-bar-wrap"><span class="graph-bar-label">N7</span><div class="graph-bar graph-bar-empty"></div></div>
-                    <div class="graph-bar-wrap"><span class="graph-bar-label">N8</span><div class="graph-bar graph-bar-empty"></div></div>
+                <div class="live-node-picker" id="live-node-picker" aria-label="Select live node">
+                    <button type="button" class="live-node-btn is-active" data-node-index="0">Node 1</button>
+                    <button type="button" class="live-node-btn" data-node-index="1">Node 2</button>
+                    <button type="button" class="live-node-btn" data-node-index="2">Node 3</button>
+                    <button type="button" class="live-node-btn" data-node-index="3">Node 4</button>
+                    <button type="button" class="live-node-btn" data-node-index="4">Node 5</button>
+                    <button type="button" class="live-node-btn" data-node-index="5">Node 6</button>
+                    <button type="button" class="live-node-btn" data-node-index="6">Node 7</button>
+                    <button type="button" class="live-node-btn" data-node-index="7">Node 8</button>
+                </div>
+                <div id="live-graph-bars" class="live-single-graph">
+                    <div class="live-single-graph-empty">No live node data yet.</div>
                 </div>
             </div>
 

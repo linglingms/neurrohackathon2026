@@ -334,6 +334,78 @@ body {
     min-width: 190px;
 }
 
+.live-node-picker {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.live-node-btn {
+    background: #152b42;
+    color: #dff2ff;
+    border: 1px solid #2a4766;
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.live-node-btn:hover {
+    background: #1d3a59;
+}
+
+.live-node-btn.is-active {
+    background: rgba(0, 194, 167, 0.24);
+    border-color: rgba(0, 194, 167, 0.8);
+    color: #bdfcf0;
+}
+
+.live-single-graph {
+    min-height: 160px;
+    border: 1px solid rgba(126, 242, 212, 0.25);
+    border-radius: 8px;
+    padding: 10px;
+    background: rgba(8, 20, 36, 0.55);
+    display: flex;
+    align-items: stretch;
+}
+
+.live-single-graph-empty {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #9fb6cb;
+    font-size: 0.9rem;
+    border: 1px dashed rgba(126, 242, 212, 0.5);
+    border-radius: 8px;
+    background: rgba(20, 38, 60, 0.4);
+}
+
+.live-trend-grid {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(24, minmax(0, 1fr));
+    gap: 4px;
+    align-items: end;
+}
+
+.live-trend-bar-wrap {
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+}
+
+.live-trend-bar {
+    width: 100%;
+    min-height: 4px;
+    border-radius: 4px 4px 1px 1px;
+    background: linear-gradient(180deg, #49d0ff, #00c2a7);
+    border: 1px solid rgba(125, 225, 255, 0.35);
+}
+
 .mic-caption {
     color: #b9d4ea;
     font-size: 0.9rem;
@@ -722,5 +794,9 @@ body {
 
     .live-graph-select-wrap {
         width: 100%;
+    }
+
+    .live-node-picker {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
