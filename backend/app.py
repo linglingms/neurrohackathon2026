@@ -1,10 +1,22 @@
-"""Flask API server for NeuroHackathon biosignal scoring."""
+"""Flask + Socket.IO API server for NeuroHackathon biosignal scoring.
+
+Supports two data modes:
+  1. LSL mode (preferred): lsl_bridge.py publishes EEG over LSL; this server
+     subscribes via StreamInlet and pushes scored results to the browser over
+     Socket.IO in real time.
+  2. Direct BrainFlow mode (legacy fallback): connects to the OpenBCI board
+     directly and uses HTTP polling.
+"""
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from flask_socketio import SocketIO
 import logging
 import os
+import threading
 import time
+
+import numpy as np
 
 try:
     from backend.main import LieDetectorApp
@@ -12,8 +24,6 @@ try:
     from backend.lsl_stream import LSLStream
     import backend.config as config
 except ModuleNotFoundError as exc:
-    # Only fall back to local imports when package-style imports are unavailable.
-    # Re-raise dependency errors (e.g., missing 'serial') so the real fix is visible.
     if exc.name and not exc.name.startswith('backend'):
         raise
     from main import LieDetectorApp
@@ -21,8 +31,15 @@ except ModuleNotFoundError as exc:
     from lsl_stream import LSLStream
     import config as config
 
+try:
+    from pylsl import StreamInlet, resolve_byprop
+    LSL_AVAILABLE = True
+except ImportError:
+    LSL_AVAILABLE = False
+
 app = Flask(__name__)
 CORS(app)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -36,6 +53,8 @@ lsl_stream = LSLStream(
 )
 session_active = False
 last_hardware_error = None
+lsl_connected = False
+lsl_stream_name = None
 
 CONNECT_RETRY_ATTEMPTS = int(os.getenv('OPENBCI_CONNECT_RETRIES', '3'))
 CONNECT_RETRY_DELAY_SEC = float(os.getenv('OPENBCI_CONNECT_RETRY_DELAY_SEC', '1.0'))
@@ -85,7 +104,95 @@ def _lsl_status_payload(timeout=0.3):
         'available_lsl_streams': lsl_stream.available_streams(timeout=timeout),
     }
 
-# --- Auto-connect at startup ---
+
+# ---------------------------------------------------------------------------
+# LSL consumer thread -- reads EEG from LSL and pushes scored results via WS
+# ---------------------------------------------------------------------------
+_lsl_thread = None
+_lsl_stop = threading.Event()
+
+
+def _lsl_consumer_loop():
+    """Background thread: resolve an LSL EEG stream, pull chunks, score, emit."""
+    global lsl_connected, lsl_stream_name
+
+    logger.info("LSL consumer: resolving EEG stream...")
+    while not _lsl_stop.is_set():
+        streams = resolve_byprop("type", "EEG", timeout=2.0)
+        if streams:
+            break
+        logger.info("LSL consumer: no EEG stream found yet, retrying...")
+    else:
+        logger.warning("LSL consumer: stopped before finding a stream")
+        return
+
+    inlet = StreamInlet(streams[0], max_chunklen=32)
+    info = inlet.info()
+    srate = int(info.nominal_srate())
+    n_ch = info.channel_count()
+    lsl_stream_name = info.name()
+    lsl_connected = True
+    logger.info(f"LSL consumer: connected to '{lsl_stream_name}' ({n_ch} ch @ {srate} Hz)")
+
+    # Emit connection event to browser
+    socketio.emit("hardware_status", {
+        "connected": True,
+        "source": "lsl",
+        "stream_name": lsl_stream_name,
+        "channels": n_ch,
+        "srate": srate,
+    })
+
+    # Accumulation buffer -- collect ~1 second of data before scoring
+    buffer = np.zeros((n_ch, 0))
+    window_samples = config.WINDOW_SIZE * 2  # same as the HTTP endpoint uses
+
+    while not _lsl_stop.is_set():
+        samples, timestamps = inlet.pull_chunk(timeout=0.05, max_samples=64)
+
+        if not timestamps:
+            continue
+
+        chunk = np.array(samples).T  # (n_ch, n_samples)
+        buffer = np.hstack([buffer, chunk])
+
+        # Once we have enough data, score and emit
+        if buffer.shape[1] >= window_samples:
+            eeg_data = buffer[:, :window_samples].tolist()
+            buffer = buffer[:, window_samples:]  # keep remainder
+
+            if session_active:
+                result = detector.process_eeg_data(eeg_data)
+                if result:
+                    result["data_source"] = "lsl"
+                    socketio.emit("eeg_score", result)
+
+    lsl_connected = False
+    logger.info("LSL consumer: stopped")
+
+
+def start_lsl_consumer():
+    """Start the background LSL reader thread (idempotent)."""
+    global _lsl_thread
+    if _lsl_thread and _lsl_thread.is_alive():
+        return  # already running
+
+    _lsl_stop.clear()
+    _lsl_thread = threading.Thread(target=_lsl_consumer_loop, daemon=True)
+    _lsl_thread.start()
+    logger.info("LSL consumer thread started")
+
+
+def stop_lsl_consumer():
+    """Signal the LSL reader thread to stop."""
+    global lsl_connected
+    _lsl_stop.set()
+    lsl_connected = False
+
+
+# ---------------------------------------------------------------------------
+# Auto-connect at startup -- try LSL first, then serial, plus LSL consumer
+# ---------------------------------------------------------------------------
 def _try_auto_connect():
     """Attempt to connect to live source on startup (LSL first, serial fallback)."""
     if os.getenv('LSL_AUTOCONNECT', 'true').lower() in ('1', 'true', 'yes', 'on'):
@@ -106,7 +213,6 @@ def _try_auto_connect():
     except Exception as e:
         logger.warning(f"Auto-connect: configured port {serial_stream.serial_port} failed: {e}")
 
-    # Scan for likely OpenBCI ports and try each
     for candidate in OpenBCIStream.scan_ports():
         if candidate['port'] == serial_stream.serial_port:
             continue  # already tried
@@ -120,11 +226,33 @@ def _try_auto_connect():
         except Exception as e:
             logger.warning(f"Auto-connect: {candidate['port']} failed: {e}")
 
-    logger.warning("Auto-connect: no OpenBCI board found — running in mock-data mode")
+    logger.warning("Auto-connect: no OpenBCI board found via direct serial")
 
+
+# Try direct connection first; also start LSL consumer in parallel so it
+# picks up the stream if lsl_bridge.py is running separately.
 _try_auto_connect()
+if LSL_AVAILABLE:
+    start_lsl_consumer()
 
 
+# ---------------------------------------------------------------------------
+# Socket.IO events
+# ---------------------------------------------------------------------------
+@socketio.on("connect")
+def on_ws_connect():
+    logger.info("WebSocket client connected")
+    source, _ = _active_stream()
+    socketio.emit("hardware_status", {
+        "connected": bool(source) or lsl_connected,
+        "source": "lsl" if lsl_connected else (source if source else "none"),
+        "stream_name": lsl_stream_name,
+    })
+
+
+# ---------------------------------------------------------------------------
+# REST API (kept for compatibility with existing frontend)
+# ---------------------------------------------------------------------------
 @app.route('/api/health', methods=['GET'])
 def health():
     source, _ = _active_stream()
@@ -257,10 +385,11 @@ def hardware_ports():
 
 @app.route('/api/session/start', methods=['POST'])
 def start_session():
-    # Start a new lie detection session
     global session_active
     detector.start_session()
     session_active = True
+    # Notify WebSocket clients
+    socketio.emit("session_status", {"active": True})
     return jsonify({'status': 'session_started', 'message': 'New session initialized', 'session_active': session_active})
 
 
@@ -276,6 +405,7 @@ def session_status():
 
 @app.route('/api/session/process', methods=['POST'])
 def process_eeg():
+    """HTTP fallback for scoring -- used when LSL/Socket.IO isn't available."""
     data = request.get_json(silent=True) or {}
     eeg_data = data.get('eeg_data')
     data_source = 'provided'
@@ -294,7 +424,7 @@ def process_eeg():
                 deceptive=bool(data.get('deceptive', False)),
             )
             data_source = 'mock'
-            logger.warning("Processing mock EEG data — hardware not connected")
+            logger.warning("Processing mock EEG data -- hardware not connected")
 
     result = detector.process_eeg_data(eeg_data)
     if result:
@@ -305,10 +435,10 @@ def process_eeg():
 
 @app.route('/api/session/end', methods=['POST'])
 def end_session():
-    # End the session and get report
     global session_active
     report = detector.end_session()
     session_active = False
+    socketio.emit("session_status", {"active": False})
     return jsonify(report if report else {'error': 'No session data'})
 
 
@@ -320,7 +450,6 @@ def export_session():
 
 @app.route('/api/config', methods=['GET'])
 def get_config():
-    """Get configuration parameters."""
     return jsonify({
         'sampling_rate': config.SAMPLING_RATE,
         'eeg_channels': config.EEG_CHANNELS,
@@ -330,7 +459,6 @@ def get_config():
 
 
 if __name__ == '__main__':
-    logger.info('Starting Lie Detector API Server')
-    # use_reloader=False prevents Flask from spawning a child process that
-    # fights over the serial port with the parent.
-    app.run(debug=True, use_reloader=False, host='0.0.0.0', port=int(os.getenv('PORT', '5050')))
+    logger.info('Starting Lie Detector API Server (Socket.IO enabled)')
+    socketio.run(app, host='0.0.0.0', port=int(os.getenv('PORT', '5050')),
+                 debug=True, use_reloader=False, allow_unsafe_werkzeug=True)

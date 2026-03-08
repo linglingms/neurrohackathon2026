@@ -34,6 +34,7 @@ function normalizeApiBase(url) {
 
 const API_BASE_URL = normalizeApiBase(apiOverride) || (isLocalStatic ? `http://${host}:5050/api` : `${window.location.origin}/api`);
 let activeApiBaseUrl = API_BASE_URL;
+const SOCKET_URL = API_BASE_URL.replace(/\/api\/?$/, "");
 const MAX_TRANSCRIPT_ROWS = 160;
 const EEG_CAPTURE_INTERVAL_MS = 1000;
 const STATUS_REFRESH_INTERVAL_MS = 5000;
@@ -81,6 +82,8 @@ const state = {
     hardwarePort: null,
     hardwareError: null,
     liveVisualization: TRANSCRIPT_VISUALIZATION_OPTIONS[0],
+    socketConnected: false,
+    lslActive: false,
 };
 
 const el = {
@@ -174,6 +177,83 @@ function setApiBaseLabel(baseUrl, online) {
     el.apiBaseLabel.textContent = `API Base: offline (last tried ${baseUrl})`;
     el.apiBaseLabel.style.color = "#ffbcbc";
 }
+
+// ---------------------------------------------------------------------------
+// Socket.IO connection -- real-time EEG scores + hardware status from backend
+// ---------------------------------------------------------------------------
+let socket = null;
+
+function initSocket() {
+    if (typeof io === "undefined") {
+        console.warn("Socket.IO client not loaded -- falling back to HTTP polling");
+        return;
+    }
+
+    socket = io(SOCKET_URL, {
+        transports: ["websocket", "polling"],
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionAttempts: Infinity,
+    });
+
+    socket.on("connect", () => {
+        state.socketConnected = true;
+        console.log("Socket.IO connected to", SOCKET_URL);
+    });
+
+    socket.on("disconnect", () => {
+        state.socketConnected = false;
+        console.warn("Socket.IO disconnected");
+    });
+
+    // Real-time scored EEG data pushed from LSL consumer on the backend
+    socket.on("eeg_score", (result) => {
+        if (!state.active) return;
+
+        state.lastResult = result;
+        state.scores.push(result.deception_probability || 0);
+
+        if (result.data_source === "mock") {
+            el.mockWarning.style.display = "";
+        } else {
+            el.mockWarning.style.display = "none";
+        }
+
+        if (result.data_source === "lsl") {
+            state.dataSource = "openbci";
+            state.lslActive = true;
+        }
+
+        updateSummary(result);
+    });
+
+    // Hardware connection status updates (LSL stream found/lost, direct serial)
+    socket.on("hardware_status", (data) => {
+        const connected = !!data.connected;
+        state.hardwareConnected = connected;
+
+        const source = data.source || "none";
+        const port = data.stream_name || data.port || null;
+
+        if (source === "lsl") {
+            state.lslActive = true;
+            state.dataSource = "openbci";
+        } else if (source === "direct") {
+            state.dataSource = "openbci";
+        }
+
+        updateHardwareUI(connected, port);
+        updateConnectionStatus();
+    });
+
+    // Session status updates (start/end from another client or the backend)
+    socket.on("session_status", (data) => {
+        state.sessionActive = !!data.active;
+        updateConnectionStatus();
+    });
+}
+
+initSocket();
 
 function setHeadsetStatus(connected) {
     if (!el.headsetStatus) {
@@ -470,7 +550,11 @@ function normalizeTranscriptText(rawText) {
 }
 
 function shouldScoreUtterance(speaker) {
-    return speaker === "Interviewee" && (state.dataSource === "openbci" || state.dataSource === "live_lsl");
+    if (speaker !== "Interviewee") return false;
+    // When LSL is active, metrics arrive via Socket.IO -- use latest cached result
+    // instead of triggering an HTTP request.
+    if (state.lslActive && state.socketConnected) return false;
+    return state.dataSource === "openbci" || state.dataSource === "live_lsl";
 }
 
 function buildNodeStressPercentages(result) {
@@ -592,6 +676,14 @@ async function captureEegWindow() {
 
 function startEegCapture() {
     stopEegCapture();
+
+    // When LSL + Socket.IO is active, the backend pushes scores in real time
+    // -- no need for HTTP polling.
+    if (state.lslActive && state.socketConnected) {
+        console.log("EEG capture: using real-time Socket.IO/LSL (no HTTP polling)");
+        return;
+    }
+
     if (state.dataSource !== "openbci" && state.dataSource !== "live_lsl") {
         return;
     }
@@ -649,9 +741,16 @@ function initSpeechRecognition() {
                 el.micCaption.textContent = `Mic transcript: ${cleanedText}`;
 
                 if (!shouldScoreUtterance(speaker)) {
-                    addTranscriptLine(speaker, cleanedText, null, { turnStartedAt, turnEndedAt });
+                    // When LSL is active, attach the latest real-time metrics
+                    // to interviewee lines instead of leaving them blank.
+                    const lslMetrics = (speaker === "Interviewee" && state.lslActive && state.socketConnected)
+                        ? getLatestMetrics()
+                        : null;
+                    addTranscriptLine(speaker, cleanedText, lslMetrics, { turnStartedAt, turnEndedAt });
                     if (speaker === "Interviewer") {
                         el.statusText.textContent = "Interviewer speech captured; scores update only from interviewee OpenBCI data.";
+                    } else if (state.lslActive && state.socketConnected) {
+                        el.statusText.textContent = "Interviewee speech captured with live LSL EEG data.";
                     } else if (state.dataSource !== "openbci" && state.dataSource !== "live_lsl") {
                         el.statusText.textContent = "Interviewee speech captured, waiting for OpenBCI data source.";
                     }
@@ -969,7 +1068,7 @@ async function disconnectHardware() {
         updateButtons();
         scanPorts();
     } catch (error) {
-        el.hwMessage.textContent = `Disconnect failed — ${error.message}`;
+        el.hwMessage.textContent = `Disconnect failed -- ${error.message}`;
     }
 }
 
@@ -1152,28 +1251,42 @@ async function startSession() {
             });
         }
     } catch (error) {
-        hardwareMessage = "Hardware unavailable";
-        state.hardwareConnected = false;
-        state.hardwareSource = null;
-        state.lslConnected = false;
-        state.lslStreamName = null;
-        state.dataSource = "unknown";
-        state.hardwareError = error.message;
-        updateHardwareUI(false, state.hardwarePort, {
-            apiOnline: true,
-            error: state.hardwareError,
-            source: state.hardwareSource,
-        });
-        if (isLiveOverride) {
-            el.mockWarning.style.display = "none";
-            throw new Error(`OpenBCI hardware connect failed: ${error.message}`);
+        // Even if direct serial connect fails, LSL may still be active
+        if (state.lslActive && state.socketConnected) {
+            hardwareMessage = "Connected via LSL stream";
+            state.dataSource = "openbci";
+            state.hardwareConnected = true;
+            hardwareConnected = true;
+        } else {
+            hardwareMessage = "Hardware unavailable";
+            state.hardwareConnected = false;
+            state.hardwareSource = null;
+            state.lslConnected = false;
+            state.lslStreamName = null;
+            state.dataSource = "unknown";
+            state.hardwareError = error.message;
+            updateHardwareUI(false, state.hardwarePort, {
+                apiOnline: true,
+                error: state.hardwareError,
+                source: state.hardwareSource,
+            });
+            if (isLiveOverride) {
+                el.mockWarning.style.display = "none";
+                throw new Error(`OpenBCI hardware connect failed: ${error.message}`);
+            }
+            state.dataSource = "mock";
+            hardwareMessage = "Hardware unavailable, using mock EEG data";
         }
-        state.dataSource = "mock";
-        hardwareMessage = "Hardware unavailable, using mock EEG data";
     }
 
     if (!hardwareMessage && !hardwareConnected) {
-        state.dataSource = "mock";
+        // Check LSL before falling back to mock
+        if (state.lslActive && state.socketConnected) {
+            state.dataSource = "openbci";
+            hardwareMessage = "Connected via LSL stream";
+        } else {
+            state.dataSource = "mock";
+        }
     }
 
     await api("/session/start", { method: "POST" });
