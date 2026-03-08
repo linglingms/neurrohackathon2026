@@ -270,7 +270,7 @@ function normalizeTranscriptText(rawText) {
 }
 
 function shouldScoreUtterance(speaker) {
-    return speaker === "Interviewee" && state.dataSource === "openbci";
+    return speaker === "Interviewee" && (state.dataSource === "openbci" || state.dataSource === "live_lsl");
 }
 
 function buildNodeStressPercentages(result) {
@@ -360,7 +360,7 @@ function stopEegCapture() {
 }
 
 async function captureEegWindow() {
-    if (!state.active || state.dataSource !== "openbci" || state.requestInFlight) {
+    if (!state.active || (state.dataSource !== "openbci" && state.dataSource !== "live_lsl") || state.requestInFlight) {
         return;
     }
 
@@ -373,7 +373,7 @@ async function captureEegWindow() {
 
 function startEegCapture() {
     stopEegCapture();
-    if (state.dataSource !== "openbci") {
+    if (state.dataSource !== "openbci" && state.dataSource !== "live_lsl") {
         return;
     }
 
@@ -431,7 +431,7 @@ function initSpeechRecognition() {
                     addTranscriptLine(speaker, cleanedText, null);
                     if (speaker === "Interviewer") {
                         el.statusText.textContent = "Interviewer speech captured; scores update only from interviewee OpenBCI data.";
-                    } else if (state.dataSource !== "openbci") {
+                    } else if (state.dataSource !== "openbci" && state.dataSource !== "live_lsl") {
                         el.statusText.textContent = "Interviewee speech captured, waiting for OpenBCI data source.";
                     }
                     continue;
@@ -731,26 +731,31 @@ async function disconnectHardware() {
 }
 
 async function scoreUtterance() {
-    const result = await api("/session/process", {
-        method: "POST",
-        body: JSON.stringify({}),
-    });
-    state.lastResult = result;
-    state.scores.push(result.deception_probability || 0);
+    state.requestInFlight = true;
+    try {
+        const result = await api("/session/process", {
+            method: "POST",
+            body: JSON.stringify({}),
+        });
+        state.lastResult = result;
+        state.scores.push(result.deception_probability || 0);
 
-    // Show mock data warning if not using live hardware
-    if (result.data_source === "mock") {
-        el.mockWarning.style.display = "";
-    } else {
-        el.mockWarning.style.display = "none";
+        // Show mock data warning if not using live hardware
+        if (result.data_source === "mock") {
+            el.mockWarning.style.display = "";
+        } else {
+            el.mockWarning.style.display = "none";
+        }
+
+        updateSummary(result);
+
+        return {
+            nodes: buildNodeStressPercentages(result),
+            confidence: toPercent(result.confidence || 0),
+        };
+    } finally {
+        state.requestInFlight = false;
     }
-
-    updateSummary(result);
-
-    return {
-        nodes: buildNodeStressPercentages(result),
-        confidence: toPercent(result.confidence || 0),
-    };
 }
 
 function buildLocalSessionReport() {
@@ -989,7 +994,9 @@ async function endSession() {
         report = buildLocalSessionReport();
     }
 
-    const sourceLabel = state.dataSource === "openbci" ? "OpenBCI headset" : "Mock/demo signal";
+    const sourceLabel = state.dataSource === "openbci"
+        ? "OpenBCI headset"
+        : (state.dataSource === "live_lsl" ? "LSL live stream" : "Mock/demo signal");
 
     state.requestInFlight = false;
     updateButtons();
