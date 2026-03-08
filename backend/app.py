@@ -13,6 +13,7 @@ from flask_cors import CORS
 from flask_socketio import SocketIO
 import logging
 import os
+import sys
 import threading
 import time
 
@@ -309,13 +310,24 @@ def _try_auto_connect():
             logger.warning("Auto-connect: LSL failed: %s", e)
 
     # Fallback to serial board.
-    try:
-        logger.info(f"Auto-connect: trying configured port {serial_stream.serial_port}...")
-        serial_stream.connect()
-        logger.info(f"Auto-connect: SUCCESS on {serial_stream.serial_port}")
-        return
-    except Exception as e:
-        logger.warning(f"Auto-connect: configured port {serial_stream.serial_port} failed: {e}")
+    configured_port = (serial_stream.serial_port or '').strip()
+    skip_configured_port = (not sys.platform.startswith('win')) and configured_port.upper().startswith('COM')
+
+    if not configured_port:
+        logger.info("Auto-connect: no configured serial port set; scanning candidates")
+    elif skip_configured_port:
+        logger.info(
+            "Auto-connect: skipping Windows-style configured port '%s' on non-Windows host",
+            configured_port,
+        )
+    else:
+        try:
+            logger.info(f"Auto-connect: trying configured port {serial_stream.serial_port}...")
+            serial_stream.connect()
+            logger.info(f"Auto-connect: SUCCESS on {serial_stream.serial_port}")
+            return
+        except Exception as e:
+            logger.warning(f"Auto-connect: configured port {serial_stream.serial_port} failed: {e}")
 
     for candidate in OpenBCIStream.scan_ports():
         if candidate['port'] == serial_stream.serial_port:

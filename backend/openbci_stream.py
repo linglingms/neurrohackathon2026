@@ -1,6 +1,7 @@
 """Live EEG streaming from OpenBCI Cyton+Daisy via BrainFlow."""
 
 import logging
+import re
 import numpy as np
 
 try:
@@ -28,6 +29,11 @@ class OpenBCIStream:
     # USB vendor/product IDs for FTDI chips used by OpenBCI dongles
     OPENBCI_FTDI_VID = 0x0403
     OPENBCI_FTDI_PID = 0x6015
+    EXCLUDED_PORT_PATTERNS = (
+        'bluetooth',
+        'debug-console',
+        'wlan-debug',
+    )
 
     def __init__(self, serial_port='COM3'):
         self.serial_port = serial_port
@@ -44,16 +50,70 @@ class OpenBCIStream:
         return [port.device for port in list_ports.comports()]
 
     def _build_port_candidates(self):
-        """Prioritize configured port, then try other detected COM/tty ports."""
+        """Prioritize configured port, then likely OpenBCI ports, then fallback ports."""
         candidates = []
         if self.serial_port:
             candidates.append(self.serial_port)
 
-        for port in self.list_available_ports():
+        scanned = self.scan_ports()
+        likely = [item['port'] for item in scanned if item.get('likely_openbci')]
+        fallback = [
+            item['port']
+            for item in scanned
+            if not item.get('likely_openbci') and not item.get('excluded')
+        ]
+
+        for port in likely + fallback:
             if port not in candidates:
                 candidates.append(port)
 
         return candidates
+
+    @staticmethod
+    def _is_likely_openbci_port(port_info):
+        """Best-effort cross-platform check for OpenBCI-compatible serial ports."""
+        port = (port_info.device or '').lower()
+        desc = (port_info.description or '').lower()
+        manufacturer = (getattr(port_info, 'manufacturer', None) or '').lower()
+        product = (getattr(port_info, 'product', None) or '').lower()
+        hwid = (getattr(port_info, 'hwid', None) or '').lower()
+        combined = ' '.join([port, desc, manufacturer, product, hwid])
+
+        if any(marker in combined for marker in OpenBCIStream.EXCLUDED_PORT_PATTERNS):
+            return False
+
+        is_ftdi = (
+            port_info.vid == OpenBCIStream.OPENBCI_FTDI_VID and
+            port_info.pid == OpenBCIStream.OPENBCI_FTDI_PID
+        )
+        if is_ftdi:
+            return True
+
+        keyword_match = any(
+            kw in combined
+            for kw in (
+                'openbci',
+                'ftdi',
+                'usb serial',
+                'usbserial',
+                'silabs',
+                'cp210',
+                'wch',
+                'ch340',
+            )
+        )
+        if keyword_match:
+            return True
+
+        # Last-resort device path hints by platform family.
+        if re.search(r'^com\d+$', port, re.IGNORECASE):
+            return True
+        if '/dev/cu.usb' in port or '/dev/tty.usb' in port:
+            return True
+        if '/dev/ttyacm' in port or '/dev/ttyusb' in port:
+            return True
+
+        return False
 
     @staticmethod
     def scan_ports():
@@ -65,19 +125,25 @@ class OpenBCIStream:
             return []
         candidates = []
         for p in list_ports.comports():
-            is_ftdi = (p.vid == OpenBCIStream.OPENBCI_FTDI_VID and
-                       p.pid == OpenBCIStream.OPENBCI_FTDI_PID)
-            desc_match = any(kw in (p.description or '').lower()
-                            for kw in ('openbci', 'ftdi', 'usb serial', 'usbserial'))
+            likely = OpenBCIStream._is_likely_openbci_port(p)
+            combined = ' '.join([
+                (p.device or '').lower(),
+                (p.description or '').lower(),
+                (getattr(p, 'manufacturer', None) or '').lower(),
+                (getattr(p, 'product', None) or '').lower(),
+                (getattr(p, 'hwid', None) or '').lower(),
+            ])
+            excluded = any(marker in combined for marker in OpenBCIStream.EXCLUDED_PORT_PATTERNS)
             candidates.append({
                 'port': p.device,
                 'description': p.description,
                 'vid': p.vid,
                 'pid': p.pid,
-                'likely_openbci': is_ftdi or desc_match,
+                'likely_openbci': likely,
+                'excluded': excluded,
             })
         # Sort so likely OpenBCI ports come first
-        candidates.sort(key=lambda c: (not c['likely_openbci'], c['port']))
+        candidates.sort(key=lambda c: (c['excluded'], not c['likely_openbci'], c['port']))
         return candidates
 
     def connect(self, port=None):

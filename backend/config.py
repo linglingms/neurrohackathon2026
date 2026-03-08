@@ -1,12 +1,14 @@
 """Configuration settings for the NeuroHackathon Lie Detector App."""
 
 import os
+import sys
 
 # OpenBCI Hardware Configuration
 SAMPLING_RATE = 125  # Hz — Cyton+Daisy runs at 125 Hz
 EEG_CHANNELS = 16
 BOARD_ID = 2  # OpenBCI Cyton+Daisy
-SERIAL_PORT = os.getenv('OPENBCI_PORT', 'COM4')
+# On non-Windows hosts, default to scanning available ports instead of a Windows COM value.
+SERIAL_PORT = os.getenv('OPENBCI_PORT', 'COM4' if sys.platform.startswith('win') else '')
 
 # Signal Processing
 FILTER_LOW_FREQ = 1  # Hz

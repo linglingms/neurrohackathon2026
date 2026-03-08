@@ -125,6 +125,7 @@ const el = {
     hwDisconnectBtn: document.getElementById("hw-disconnect-btn"),
     portSelect: document.getElementById("port-select"),
     sourceSelect: document.getElementById("source-select"),
+    lslStreamSelect: document.getElementById("lsl-stream-select"),
     modeHelpText: document.getElementById("mode-help-text"),
     mockWarning: document.getElementById("mock-warning"),
     startBtn: document.getElementById("start-btn"),
@@ -575,7 +576,7 @@ function buildPreflightMessage() {
 }
 
 function updateSourceModeUi() {
-    if (!el.sourceSelect || !el.modeHelpText || !el.portSelect) {
+    if (!el.sourceSelect || !el.modeHelpText || !el.portSelect || !el.lslStreamSelect) {
         return;
     }
 
@@ -583,6 +584,7 @@ function updateSourceModeUi() {
     if (mode === "lsl") {
         el.modeHelpText.textContent = "LSL mode selected: OpenBCI/LSL app must be open and actively streaming.";
         el.portSelect.disabled = true;
+        el.lslStreamSelect.disabled = false;
         updateButtons();
         return;
     }
@@ -590,13 +592,51 @@ function updateSourceModeUi() {
     if (mode === "serial") {
         el.modeHelpText.textContent = "Serial mode selected: close OpenBCI GUI/LSL app before connecting to COM port.";
         el.portSelect.disabled = false;
+        el.lslStreamSelect.disabled = true;
         updateButtons();
         return;
     }
 
     el.modeHelpText.textContent = "Auto mode selected: backend tries LSL first, then serial port fallback.";
     el.portSelect.disabled = false;
+    el.lslStreamSelect.disabled = false;
     updateButtons();
+}
+
+function renderLslStreamOptions(streams) {
+    if (!el.lslStreamSelect) {
+        return;
+    }
+
+    const current = el.lslStreamSelect.value;
+    el.lslStreamSelect.innerHTML = "";
+
+    const auto = document.createElement("option");
+    auto.value = "";
+    auto.textContent = "LSL Stream: Auto (first EEG)";
+    el.lslStreamSelect.appendChild(auto);
+
+    if (!Array.isArray(streams) || streams.length === 0) {
+        const none = document.createElement("option");
+        none.value = "";
+        none.textContent = "No EEG LSL streams detected";
+        none.disabled = true;
+        el.lslStreamSelect.appendChild(none);
+        return;
+    }
+
+    for (const stream of streams) {
+        const name = stream && stream.name ? stream.name : "Unnamed";
+        const channels = stream && typeof stream.channel_count === "number" ? `${stream.channel_count}ch` : "?ch";
+        const rate = stream && typeof stream.nominal_srate === "number" ? `${Math.round(stream.nominal_srate)}Hz` : "?Hz";
+        const opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = `LSL: ${name} (${channels}, ${rate})`;
+        if (current && current === name) {
+            opt.selected = true;
+        }
+        el.lslStreamSelect.appendChild(opt);
+    }
 }
 
 function renderTranscript() {
@@ -1155,12 +1195,19 @@ async function api(path, options = {}) {
         },
     });
     if (!response.ok) {
-        let message = `Request failed: ${path}`;
+        let message = `Request failed (${response.status}): ${path}`;
         try {
             const payload = await response.json();
             message = payload.error || payload.message || message;
         } catch (error) {
-            // Keep fallback message when body is not JSON.
+            try {
+                const text = await response.text();
+                if (text) {
+                    message = `${message} ${text.slice(0, 140)}`;
+                }
+            } catch (_textError) {
+                // Keep fallback message when body is not JSON/text.
+            }
         }
         throw new Error(message);
     }
@@ -1277,6 +1324,7 @@ function updateHardwareUI(connected, port, options = {}) {
 async function scanPorts() {
     try {
         const data = await api("/hardware/scan");
+        renderLslStreamOptions(data.lsl_streams || []);
         el.portSelect.innerHTML = "";
         if (!data.ports.length) {
             el.portSelect.innerHTML = '<option value="">No ports found</option>';
@@ -1294,14 +1342,33 @@ async function scanPorts() {
         if (data && typeof data.source === "string") {
             state.hardwareSource = data.source;
         }
-    } catch {
-        el.portSelect.innerHTML = '<option value="">Scan failed</option>';
+    } catch (error) {
+        const message = String((error && error.message) || "");
+        const isUnsupportedRoute = message.includes("404") || message.includes("/hardware/scan");
+        const isOffline = !state.apiOnline;
+
+        renderLslStreamOptions([]);
+
+        if (isOffline) {
+            el.portSelect.innerHTML = '<option value="">API offline - cannot scan ports</option>';
+            return;
+        }
+
+        if (isUnsupportedRoute) {
+            el.portSelect.innerHTML = '<option value="">Hardware scan unavailable on this API (use ?api=live)</option>';
+            return;
+        }
+
+        el.portSelect.innerHTML = '<option value="">Scan failed - check backend logs</option>';
     }
 }
 
 async function connectHardware() {
     const mode = (el.sourceSelect && el.sourceSelect.value) || "auto";
     const port = el.portSelect.value;
+    const streamName = el.lslStreamSelect && el.lslStreamSelect.value
+        ? el.lslStreamSelect.value
+        : null;
     if (mode === "serial" && !port) return;
     el.hwConnectBtn.disabled = true;
     el.hwConnectBtn.textContent = "Connecting...";
@@ -1309,6 +1376,9 @@ async function connectHardware() {
         const payload = { mode };
         if (port) {
             payload.port = port;
+        }
+        if (streamName && mode !== "serial") {
+            payload.stream_name = streamName;
         }
         const data = await api("/hardware/connect", {
             method: "POST",
@@ -1476,6 +1546,9 @@ async function checkHealth() {
             if (typeof hardware.error === "string" || hardware.error === null) {
                 state.hardwareError = hardware.error;
             }
+            if (Array.isArray(hardware.available_lsl_streams)) {
+                renderLslStreamOptions(hardware.available_lsl_streams);
+            }
         } catch (error) {
             // Ignore when hardware route is not available (for hosted serverless APIs).
         }
@@ -1526,10 +1599,14 @@ async function startSession() {
     let hardwareConnected = false;
     const mode = (el.sourceSelect && el.sourceSelect.value) || "auto";
     const selectedPort = el.portSelect && el.portSelect.value ? el.portSelect.value : null;
+    const selectedLslStream = el.lslStreamSelect && el.lslStreamSelect.value ? el.lslStreamSelect.value : null;
     try {
         const payload = { mode };
         if (selectedPort) {
             payload.port = selectedPort;
+        }
+        if (selectedLslStream && mode !== "serial") {
+            payload.stream_name = selectedLslStream;
         }
         const hardware = await api("/hardware/connect", {
             method: "POST",
