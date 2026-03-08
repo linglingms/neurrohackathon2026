@@ -14,7 +14,7 @@
     <main class="container">
         <header class="header">
             <h1>NeuroSignal Interview Dashboard</h1>
-            <p>Desktop and mobile biosignal scoring demo for OpenBCI + Jetson Nano</p>
+            <p>Desktop and mobile biosignal scoring demo for OpenBCI + LSL/serial backend</p>
             <div class="top-status-strip">
                 <div id="headset-status" class="status-indicator">
                     Headset: <span class="status-word status-word-bad">Disconnected</span>
@@ -99,9 +99,19 @@
                 <div class="transcript-empty">Transcript will appear after the interview starts.</div>
             </div>
             <div class="transcript-graph-panel">
-                <h3 id="transcript-graph-title">Row Graph</h3>
+                <h3 id="transcript-graph-title">Interviewee Graph Preview (Pre-Start)</h3>
                 <div id="transcript-graph-body" class="transcript-graph-body">
-                    <div class="transcript-empty">Select a transcript row visualization to view chart data.</div>
+                    <div class="transcript-preview-note">Awaiting live interviewee EEG data.</div>
+                    <div class="transcript-graph-bars">
+                        <div class="graph-bar-wrap"><span class="graph-bar-label">N1</span><div class="graph-bar graph-bar-empty"></div></div>
+                        <div class="graph-bar-wrap"><span class="graph-bar-label">N2</span><div class="graph-bar graph-bar-empty"></div></div>
+                        <div class="graph-bar-wrap"><span class="graph-bar-label">N3</span><div class="graph-bar graph-bar-empty"></div></div>
+                        <div class="graph-bar-wrap"><span class="graph-bar-label">N4</span><div class="graph-bar graph-bar-empty"></div></div>
+                        <div class="graph-bar-wrap"><span class="graph-bar-label">N5</span><div class="graph-bar graph-bar-empty"></div></div>
+                        <div class="graph-bar-wrap"><span class="graph-bar-label">N6</span><div class="graph-bar graph-bar-empty"></div></div>
+                        <div class="graph-bar-wrap"><span class="graph-bar-label">N7</span><div class="graph-bar graph-bar-empty"></div></div>
+                        <div class="graph-bar-wrap"><span class="graph-bar-label">N8</span><div class="graph-bar graph-bar-empty"></div></div>
+                    </div>
                 </div>
             </div>
         </section>

@@ -1,6 +1,6 @@
 # NeuroHackathon 2026 - NeuroSignal Interview App
 
-Real-time biosignal analysis app for desktop and mobile browsers, built for OpenBCI + Jetson Nano.
+Real-time biosignal analysis app for desktop and mobile browsers, built for OpenBCI + LSL/serial backend.
 
 ## Live App
 - Production URL: `https://neurrohackathon2026.vercel.app`
@@ -162,7 +162,7 @@ curl http://localhost:5050/api/health
 
 ## Hardware Plan
 - OpenBCI headset for EEG capture
-- Jetson Nano for local inference and hosting
+- Laptop/desktop machine running the Python backend locally
 
 ## Next Build Steps
 1. Add persistent per-session storage for serverless API mode

@@ -75,6 +75,8 @@ const state = {
     lslConnected: false,
     lslStreamName: null,
     sessionActive: false,
+    sessionStartedAt: null,
+    speechTurnStartedAt: null,
     apiOnline: false,
     hardwarePort: null,
     hardwareError: null,
@@ -231,11 +233,15 @@ function renderTranscript() {
         return;
     }
 
-    const headerCells = ["View", "Role", "1", "2", "3", "4", "5", "6", "7", "8"];
+    const headerCells = ["View", "Role", "Timestamp", "1", "2", "3", "4", "5", "6", "7", "8"];
     const headerHtml = headerCells.map((label) => `<th>${label}</th>`).join("");
 
     if (state.selectedTranscriptRow === null || state.selectedTranscriptRow >= state.transcript.length) {
-        state.selectedTranscriptRow = Math.max(0, state.transcript.length - 1);
+        const latestWithEeg = state.transcript
+            .map((entry, idx) => ({ entry, idx }))
+            .reverse()
+            .find(({ entry }) => Array.isArray(entry.nodes) && entry.nodes.some((value) => typeof value === "number" && !Number.isNaN(value)));
+        state.selectedTranscriptRow = latestWithEeg ? latestWithEeg.idx : Math.max(0, state.transcript.length - 1);
     }
 
     const rowsHtml = state.transcript
@@ -250,9 +256,10 @@ function renderTranscript() {
                 .join("");
 
             return [
-                `<tr class="${index === state.selectedTranscriptRow ? "transcript-row-active" : ""}">`,
+                `<tr class="${index === state.selectedTranscriptRow ? "transcript-row-active" : ""}" data-row-index="${index}">`,
                 `<td><select class="transcript-view-select" data-row-index="${index}">${optionHtml}</select></td>`,
                 `<td><span class="speaker speaker-${entry.speaker.toLowerCase()}">${entry.speaker}</span></td>`,
+                `<td class="timestamp-cell" title="${entry.timeframe}"><div class="timestamp-main">${entry.timestamp}</div><div class="timestamp-sub">${entry.timeframe}</div></td>`,
                 nodeCells,
                 "</tr>",
             ].join("");
@@ -276,8 +283,17 @@ function renderTranscriptGraph() {
     }
 
     if (!state.transcript.length || state.selectedTranscriptRow === null) {
-        el.transcriptGraphTitle.textContent = "Row Graph";
-        el.transcriptGraphBody.innerHTML = '<div class="transcript-empty">Select a transcript row visualization to view chart data.</div>';
+        const previewBars = getBlankGraphBars()
+            .map((barHtml, idx) => {
+                return `<div class="graph-bar-wrap"><span class="graph-bar-label">N${idx + 1}</span>${barHtml}</div>`;
+            })
+            .join("");
+
+        el.transcriptGraphTitle.textContent = "Interviewee Graph Preview (Pre-Start)";
+        el.transcriptGraphBody.innerHTML = [
+            '<div class="transcript-preview-note">Awaiting live interviewee EEG data.</div>',
+            `<div class="transcript-graph-bars">${previewBars}</div>`,
+        ].join("");
         return;
     }
 
@@ -286,16 +302,65 @@ function renderTranscriptGraph() {
         return;
     }
 
-    const values = row.nodes.map((value) => (typeof value === "number" && !Number.isNaN(value) ? value : 0));
-    const bars = values
-        .map((value, idx) => {
-            const height = Math.max(6, Math.round(value));
-            return `<div class="graph-bar-wrap"><span class="graph-bar-label">N${idx + 1}</span><div class="graph-bar" style="height:${height}%"></div></div>`;
-        })
-        .join("");
+    const hasNodeData = Array.isArray(row.nodes) && row.nodes.some((value) => typeof value === "number" && !Number.isNaN(value));
+    const bars = hasNodeData
+        ? row.nodes
+            .map((value, idx) => {
+                const normalized = typeof value === "number" && !Number.isNaN(value) ? value : 0;
+                const height = Math.max(6, Math.round(normalized));
+                return `<div class="graph-bar-wrap"><span class="graph-bar-label">N${idx + 1}</span><div class="graph-bar" style="height:${height}%"></div></div>`;
+            })
+            .join("")
+        : getBlankGraphBars()
+            .map((barHtml, idx) => `<div class="graph-bar-wrap"><span class="graph-bar-label">N${idx + 1}</span>${barHtml}</div>`)
+            .join("");
 
-    el.transcriptGraphTitle.textContent = `Row ${state.selectedTranscriptRow + 1}: ${row.speaker} - ${row.visualization || TRANSCRIPT_VISUALIZATION_OPTIONS[0]}`;
-    el.transcriptGraphBody.innerHTML = `<div class="transcript-graph-bars">${bars}</div>`;
+    el.transcriptGraphTitle.textContent = hasNodeData
+        ? `Row ${state.selectedTranscriptRow + 1}: ${row.speaker} - ${row.visualization || TRANSCRIPT_VISUALIZATION_OPTIONS[0]}`
+        : `Row ${state.selectedTranscriptRow + 1}: ${row.speaker} - No EEG Yet`;
+    el.transcriptGraphBody.innerHTML = hasNodeData
+        ? `<div class="transcript-graph-bars">${bars}</div>`
+        : [
+            '<div class="transcript-preview-note">No EEG values for this turn yet.</div>',
+            `<div class="transcript-graph-bars">${bars}</div>`,
+        ].join("");
+}
+
+function getBlankGraphBars() {
+    return new Array(8).fill('<div class="graph-bar graph-bar-empty"></div>');
+}
+
+function formatTurnTimestamp(timestampMs) {
+    const date = new Date(timestampMs);
+    if (Number.isNaN(date.getTime())) {
+        return "--:--:--";
+    }
+    return date.toLocaleTimeString([], { hour12: false });
+}
+
+function formatElapsed(elapsedMs) {
+    if (typeof elapsedMs !== "number" || Number.isNaN(elapsedMs) || elapsedMs < 0) {
+        return "--:--";
+    }
+    const totalSeconds = Math.floor(elapsedMs / 1000);
+    const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+    const seconds = String(totalSeconds % 60).padStart(2, "0");
+    return `${minutes}:${seconds}`;
+}
+
+function formatSeconds(seconds) {
+    if (typeof seconds !== "number" || Number.isNaN(seconds) || seconds < 0) {
+        return "--.-s";
+    }
+    return `${seconds.toFixed(1)}s`;
+}
+
+function buildTurnTimeframe(turnStartedAt, turnEndedAt) {
+    const start = typeof turnStartedAt === "number" ? turnStartedAt : turnEndedAt;
+    const sessionStart = typeof state.sessionStartedAt === "number" ? state.sessionStartedAt : start;
+    const sessionElapsed = formatElapsed(start - sessionStart);
+    const durationSeconds = formatSeconds((turnEndedAt - start) / 1000);
+    return `+${sessionElapsed} | ${durationSeconds}`;
 }
 
 function formatPercentCell(value) {
@@ -399,17 +464,26 @@ function buildNodeStressPercentages(result) {
     return new Array(8).fill(overallPct);
 }
 
-function addTranscriptLine(speaker, text, metrics = null) {
+function addTranscriptLine(speaker, text, metrics = null, timing = null) {
     const nodes = metrics && Array.isArray(metrics.nodes) && metrics.nodes.length === 8
         ? metrics.nodes
         : new Array(8).fill(null);
     const confidence = metrics && typeof metrics.confidence === "number" ? metrics.confidence : null;
+
+    const turnEndedAt = timing && typeof timing.turnEndedAt === "number"
+        ? timing.turnEndedAt
+        : Date.now();
+    const turnStartedAt = timing && typeof timing.turnStartedAt === "number"
+        ? timing.turnStartedAt
+        : turnEndedAt;
 
     state.transcript.push({
         speaker,
         text,
         nodes,
         confidence,
+        timestamp: formatTurnTimestamp(turnEndedAt),
+        timeframe: buildTurnTimeframe(turnStartedAt, turnEndedAt),
         visualization: TRANSCRIPT_VISUALIZATION_OPTIONS[0],
     });
     state.lastAssignedRole = speaker;
@@ -528,35 +602,44 @@ function initSpeechRecognition() {
         for (let i = event.resultIndex; i < event.results.length; i += 1) {
             const text = event.results[i][0].transcript.trim();
             if (event.results[i].isFinal) {
+                const turnEndedAt = Date.now();
+                const turnStartedAt = state.speechTurnStartedAt || turnEndedAt;
                 const cleanedText = normalizeTranscriptText(text);
                 const speaker = classifySpeaker(text);
                 el.micCaption.textContent = `Mic transcript: ${cleanedText}`;
 
                 if (!shouldScoreUtterance(speaker)) {
-                    addTranscriptLine(speaker, cleanedText, null);
+                    addTranscriptLine(speaker, cleanedText, null, { turnStartedAt, turnEndedAt });
                     if (speaker === "Interviewer") {
                         el.statusText.textContent = "Interviewer speech captured; scores update only from interviewee OpenBCI data.";
                     } else if (state.dataSource !== "openbci" && state.dataSource !== "live_lsl") {
                         el.statusText.textContent = "Interviewee speech captured, waiting for OpenBCI data source.";
                     }
+                    state.speechTurnStartedAt = null;
                     continue;
                 }
 
                 const metrics = getLatestMetrics();
                 if (metrics) {
-                    addTranscriptLine(speaker, cleanedText, metrics);
+                    addTranscriptLine(speaker, cleanedText, metrics, { turnStartedAt, turnEndedAt });
+                    state.speechTurnStartedAt = null;
                 } else {
                     scoreUtterance()
                         .then((freshMetrics) => {
-                            addTranscriptLine(speaker, cleanedText, freshMetrics);
+                            addTranscriptLine(speaker, cleanedText, freshMetrics, { turnStartedAt, turnEndedAt });
+                            state.speechTurnStartedAt = null;
                         })
                         .catch((error) => {
                             el.statusText.textContent = `Scoring error: ${error.message}`;
-                            addTranscriptLine(speaker, cleanedText, null);
+                            addTranscriptLine(speaker, cleanedText, null, { turnStartedAt, turnEndedAt });
+                            state.speechTurnStartedAt = null;
                         });
                 }
             } else {
                 interim = text;
+                if (interim && !state.speechTurnStartedAt) {
+                    state.speechTurnStartedAt = Date.now();
+                }
             }
         }
 
@@ -1059,6 +1142,8 @@ async function startSession() {
     state.transcript = [];
     state.selectedTranscriptRow = null;
     state.lastAssignedRole = null;
+    state.sessionStartedAt = Date.now();
+    state.speechTurnStartedAt = null;
     state.requestInFlight = false;
     el.reportBox.textContent = hardwareMessage
         ? `Session started. ${hardwareMessage}. Listening for conversation...`
@@ -1101,6 +1186,7 @@ async function runSample() {
 async function endSession() {
     state.active = false;
     state.sessionActive = false;
+    state.speechTurnStartedAt = null;
     stopEegCapture();
     if (state.speechRecognition && state.micListening) {
         try {
@@ -1165,6 +1251,25 @@ el.transcriptLog.addEventListener("change", (event) => {
     }
 
     state.transcript[index].visualization = target.value;
+    state.selectedTranscriptRow = index;
+    renderTranscript();
+});
+el.transcriptLog.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+        return;
+    }
+
+    const row = target.closest("tr[data-row-index]");
+    if (!row) {
+        return;
+    }
+
+    const index = Number(row.getAttribute("data-row-index"));
+    if (Number.isNaN(index) || !state.transcript[index]) {
+        return;
+    }
+
     state.selectedTranscriptRow = index;
     renderTranscript();
 });
