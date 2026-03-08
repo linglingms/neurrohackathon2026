@@ -410,6 +410,8 @@ function updateSourceModeUi() {
 function renderTranscript() {
     if (!state.transcript.length) {
         el.transcriptLog.innerHTML = '<div class="transcript-empty">Transcript will appear after the interview starts.</div>';
+        el.transcriptLog.style.height = "";
+        el.transcriptLog.style.maxHeight = "";
         renderTranscriptGraph();
         renderSentimentRankingAnalysis();
         return;
@@ -455,10 +457,42 @@ function renderTranscript() {
         "</table>",
     ].join("");
 
-    el.transcriptLog.scrollTop = el.transcriptLog.scrollHeight;
+    setTranscriptPreviewWindow();
+    // Keep the preview focused on the first five rows.
+    el.transcriptLog.scrollTop = 0;
     renderTranscriptGraph();
     renderLiveGraph();
     renderSentimentRankingAnalysis();
+}
+
+function setTranscriptPreviewWindow() {
+    if (!el.transcriptLog) {
+        return;
+    }
+
+    const table = el.transcriptLog.querySelector(".transcript-table");
+    if (!(table instanceof HTMLTableElement)) {
+        el.transcriptLog.style.height = "";
+        el.transcriptLog.style.maxHeight = "";
+        return;
+    }
+
+    const header = table.querySelector("thead");
+    const rows = Array.from(table.querySelectorAll("tbody tr"));
+    const visibleRows = rows.slice(0, 5);
+
+    if (!visibleRows.length) {
+        el.transcriptLog.style.height = "";
+        el.transcriptLog.style.maxHeight = "";
+        return;
+    }
+
+    const headerHeight = header ? Math.ceil(header.getBoundingClientRect().height) : 0;
+    const rowsHeight = visibleRows.reduce((sum, row) => sum + Math.ceil(row.getBoundingClientRect().height), 0);
+    const viewportHeight = Math.max(160, headerHeight + rowsHeight + 4);
+
+    el.transcriptLog.style.height = `${viewportHeight}px`;
+    el.transcriptLog.style.maxHeight = `${viewportHeight}px`;
 }
 
 function renderTranscriptGraph() {

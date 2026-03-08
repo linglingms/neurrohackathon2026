@@ -416,8 +416,7 @@ body {
     background: #0d1b2d;
     border: 1px solid #223a58;
     border-radius: 10px;
-    min-height: 170px;
-    max-height: 260px;
+    min-height: 140px;
     overflow-x: auto;
     overflow-y: auto;
     padding: 0;
