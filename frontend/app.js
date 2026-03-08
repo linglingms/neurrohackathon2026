@@ -75,6 +75,7 @@ const el = {
     hwDisconnectBtn: document.getElementById("hw-disconnect-btn"),
     portSelect: document.getElementById("port-select"),
     sourceSelect: document.getElementById("source-select"),
+    modeHelpText: document.getElementById("mode-help-text"),
     mockWarning: document.getElementById("mock-warning"),
     startBtn: document.getElementById("start-btn"),
     sampleBtn: document.getElementById("sample-btn"),
@@ -142,6 +143,28 @@ function updateConnectionStatus() {
     setHeadsetStatus(!!state.hardwareConnected);
     setLslStatus(!!state.lslConnected, state.lslStreamName);
     setOpenBciStatus(!!state.sessionActive);
+}
+
+function updateSourceModeUi() {
+    if (!el.sourceSelect || !el.modeHelpText || !el.portSelect) {
+        return;
+    }
+
+    const mode = el.sourceSelect.value;
+    if (mode === "lsl") {
+        el.modeHelpText.textContent = "LSL mode selected: OpenBCI/LSL app must be open and actively streaming.";
+        el.portSelect.disabled = true;
+        return;
+    }
+
+    if (mode === "serial") {
+        el.modeHelpText.textContent = "Serial mode selected: close OpenBCI GUI/LSL app before connecting to COM port.";
+        el.portSelect.disabled = false;
+        return;
+    }
+
+    el.modeHelpText.textContent = "Auto mode selected: backend tries LSL first, then serial port fallback.";
+    el.portSelect.disabled = false;
 }
 
 function renderTranscript() {
@@ -996,6 +1019,9 @@ el.micBtn.addEventListener("click", () => toggleMic().catch((e) => (el.statusTex
 el.exportBtn.addEventListener("click", () => exportSession().catch((e) => (el.statusText.textContent = e.message)));
 el.hwConnectBtn.addEventListener("click", () => connectHardware());
 el.hwDisconnectBtn.addEventListener("click", () => disconnectHardware());
+if (el.sourceSelect) {
+    el.sourceSelect.addEventListener("change", updateSourceModeUi);
+}
 window.addEventListener("beforeunload", () => {
     stopEegCapture();
     if (state.speechRecognition && state.micListening) {
@@ -1011,6 +1037,7 @@ updateButtons();
 updateMicUi();
 renderTranscript();
 updateConnectionStatus();
+updateSourceModeUi();
 checkHealth();
 scanPorts();
 setInterval(() => {

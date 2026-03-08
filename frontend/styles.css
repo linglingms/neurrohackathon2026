@@ -221,6 +221,48 @@ body {
     text-align: center;
 }
 
+.mode-guide {
+    border: 1px solid rgba(159, 197, 232, 0.22);
+    background: rgba(11, 20, 34, 0.72);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+}
+
+.mode-guide h3 {
+    margin-bottom: 6px;
+    color: #dff1ff;
+    font-size: 0.96rem;
+}
+
+.mode-guide p {
+    color: #a9c8e0;
+    font-size: 0.86rem;
+    margin-bottom: 8px;
+}
+
+.mode-rules {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 8px;
+}
+
+.mode-rule-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border: 1px solid rgba(152, 192, 228, 0.18);
+    border-radius: 10px;
+    padding: 8px 10px;
+    background: rgba(16, 31, 49, 0.6);
+    font-size: 0.82rem;
+    color: #bcd6eb;
+}
+
+.mode-rule-card strong {
+    color: #e8f6ff;
+}
+
 .controls {
     display: flex;
     flex-wrap: wrap;

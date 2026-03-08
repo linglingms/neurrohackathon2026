@@ -53,6 +53,25 @@
             </div>
         </section>
 
+        <section class="mode-guide" id="mode-guide">
+            <h3>Data Source Mode</h3>
+            <p id="mode-help-text">Auto mode tries LSL first, then serial.</p>
+            <div class="mode-rules">
+                <div class="mode-rule-card">
+                    <strong>LSL Mode</strong>
+                    <span>OpenBCI/LSL app must be open and actively streaming.</span>
+                    <span>Backend connects to published LSL EEG stream.</span>
+                    <span>OpenBCI GUI can stay open in this mode.</span>
+                </div>
+                <div class="mode-rule-card">
+                    <strong>Serial Mode</strong>
+                    <span>OpenBCI GUI/LSL app must be closed.</span>
+                    <span>Backend opens COM port directly (for example COM4).</span>
+                    <span>If OpenBCI GUI is open, serial connect usually fails (port busy / BOARD_NOT_READY).</span>
+                </div>
+            </div>
+        </section>
+
         <section id="mock-warning" class="mock-warning" style="display:none">
             &#x26A0; Using simulated EEG data — results are not real. Connect hardware for live readings.
         </section>
