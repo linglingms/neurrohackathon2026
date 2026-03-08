@@ -80,6 +80,7 @@ const state = {
     apiOnline: false,
     hardwarePort: null,
     hardwareError: null,
+    liveVisualization: TRANSCRIPT_VISUALIZATION_OPTIONS[0],
 };
 
 const el = {
@@ -115,8 +116,49 @@ const el = {
     transcriptLog: document.getElementById("transcript-log"),
     transcriptGraphTitle: document.getElementById("transcript-graph-title"),
     transcriptGraphBody: document.getElementById("transcript-graph-body"),
+    liveGraphTitle: document.getElementById("live-graph-title"),
+    liveGraphStatus: document.getElementById("live-graph-status"),
+    liveGraphBars: document.getElementById("live-graph-bars"),
+    liveGraphSelect: document.getElementById("live-graph-select"),
     micCaption: document.getElementById("mic-caption"),
 };
+
+function buildGraphBars(values, barClass = "graph-bar") {
+    return values
+        .map((value, idx) => {
+            const height = Math.max(6, Math.round(value));
+            return `<div class="graph-bar-wrap"><span class="graph-bar-label">N${idx + 1}</span><div class="${barClass}" style="height:${height}%"></div></div>`;
+        })
+        .join("");
+}
+
+function renderLiveGraph() {
+    if (!el.liveGraphTitle || !el.liveGraphStatus || !el.liveGraphBars) {
+        return;
+    }
+
+    const selectedView = state.liveVisualization || TRANSCRIPT_VISUALIZATION_OPTIONS[0];
+    const activeLiveSession = state.active && (state.dataSource === "openbci" || state.dataSource === "live_lsl");
+    const hasLatestResult = !!state.lastResult;
+
+    el.liveGraphTitle.textContent = activeLiveSession
+        ? `Live OpenBCI Graph: ${selectedView}`
+        : `Live OpenBCI Graph (Pre-Start): ${selectedView}`;
+
+    if (!activeLiveSession || !hasLatestResult) {
+        el.liveGraphStatus.textContent = activeLiveSession
+            ? "Session active. Waiting for first EEG window..."
+            : "Waiting for active session and OpenBCI/LSL EEG.";
+        el.liveGraphBars.innerHTML = getBlankGraphBars()
+            .map((barHtml, idx) => `<div class="graph-bar-wrap"><span class="graph-bar-label">N${idx + 1}</span>${barHtml}</div>`)
+            .join("");
+        return;
+    }
+
+    const values = buildNodeStressPercentages(state.lastResult).map((value) => (typeof value === "number" && !Number.isNaN(value) ? value : 0));
+    el.liveGraphStatus.textContent = "Live EEG values streaming from latest OpenBCI/LSL window.";
+    el.liveGraphBars.innerHTML = buildGraphBars(values, "graph-bar");
+}
 
 function setApiBaseLabel(baseUrl, online) {
     if (!el.apiBaseLabel) {
@@ -275,6 +317,7 @@ function renderTranscript() {
 
     el.transcriptLog.scrollTop = el.transcriptLog.scrollHeight;
     renderTranscriptGraph();
+    renderLiveGraph();
 }
 
 function renderTranscriptGraph() {
@@ -304,13 +347,10 @@ function renderTranscriptGraph() {
 
     const hasNodeData = Array.isArray(row.nodes) && row.nodes.some((value) => typeof value === "number" && !Number.isNaN(value));
     const bars = hasNodeData
-        ? row.nodes
-            .map((value, idx) => {
-                const normalized = typeof value === "number" && !Number.isNaN(value) ? value : 0;
-                const height = Math.max(6, Math.round(normalized));
-                return `<div class="graph-bar-wrap"><span class="graph-bar-label">N${idx + 1}</span><div class="graph-bar" style="height:${height}%"></div></div>`;
-            })
-            .join("")
+        ? buildGraphBars(
+            row.nodes.map((value) => (typeof value === "number" && !Number.isNaN(value) ? value : 0)),
+            "graph-bar",
+        )
         : getBlankGraphBars()
             .map((barHtml, idx) => `<div class="graph-bar-wrap"><span class="graph-bar-label">N${idx + 1}</span>${barHtml}</div>`)
             .join("");
@@ -739,6 +779,8 @@ function updateSummary(result) {
     el.statusText.textContent = result.is_deceptive
         ? "Likely elevated cognitive stress"
         : "Likely lower cognitive stress";
+
+    renderLiveGraph();
 }
 
 async function api(path, options = {}) {
@@ -1165,6 +1207,7 @@ async function startSession() {
     updateButtons();
     updateConnectionStatus();
     startEegCapture();
+    renderLiveGraph();
     if (state.micEnabled && state.speechRecognition) {
         try {
             state.speechRecognition.start();
@@ -1214,6 +1257,7 @@ async function endSession() {
     state.requestInFlight = false;
     updateButtons();
     updateConnectionStatus();
+    renderLiveGraph();
     el.reportBox.innerHTML = [
         `Data source: ${sourceLabel}`,
         `Total windows: ${report.total_windows}`,
@@ -1276,6 +1320,13 @@ el.transcriptLog.addEventListener("click", (event) => {
 if (el.sourceSelect) {
     el.sourceSelect.addEventListener("change", updateSourceModeUi);
 }
+if (el.liveGraphSelect) {
+    el.liveGraphSelect.value = state.liveVisualization;
+    el.liveGraphSelect.addEventListener("change", () => {
+        state.liveVisualization = el.liveGraphSelect.value;
+        renderLiveGraph();
+    });
+}
 window.addEventListener("beforeunload", () => {
     stopEegCapture();
     if (state.speechRecognition && state.micListening) {
@@ -1290,6 +1341,7 @@ window.addEventListener("beforeunload", () => {
 updateButtons();
 updateMicUi();
 renderTranscript();
+renderLiveGraph();
 updateConnectionStatus();
 updateSourceModeUi();
 checkHealth();

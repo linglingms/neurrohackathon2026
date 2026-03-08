@@ -93,6 +93,44 @@
         </section>
 
         <section class="transcript-wrap">
+            <div class="live-graph-panel">
+                <div class="live-graph-head">
+                    <h2 id="live-graph-title">Live OpenBCI Graph (Pre-Start)</h2>
+                    <label class="live-graph-select-wrap" for="live-graph-select">
+                        Live View
+                        <select id="live-graph-select" class="speaker-select">
+                            <option value="time series" selected>time series</option>
+                            <option value="fft plot">fft plot</option>
+                            <option value="accelerometer">accelerometer</option>
+                            <option value="cyton signal">cyton signal</option>
+                            <option value="focus widget">focus widget</option>
+                            <option value="network">network</option>
+                            <option value="band power">band power</option>
+                            <option value="head plot">head plot</option>
+                            <option value="EMG">EMG</option>
+                            <option value="EMG joystick">EMG joystick</option>
+                            <option value="spectrogram">spectrogram</option>
+                            <option value="pulse">pulse</option>
+                            <option value="digital read">digital read</option>
+                            <option value="analog read">analog read</option>
+                            <option value="packet loss">packet loss</option>
+                            <option value="marker">marker</option>
+                        </select>
+                    </label>
+                </div>
+                <div id="live-graph-status" class="transcript-preview-note">Waiting for active session and OpenBCI/LSL EEG.</div>
+                <div id="live-graph-bars" class="transcript-graph-bars">
+                    <div class="graph-bar-wrap"><span class="graph-bar-label">N1</span><div class="graph-bar graph-bar-empty"></div></div>
+                    <div class="graph-bar-wrap"><span class="graph-bar-label">N2</span><div class="graph-bar graph-bar-empty"></div></div>
+                    <div class="graph-bar-wrap"><span class="graph-bar-label">N3</span><div class="graph-bar graph-bar-empty"></div></div>
+                    <div class="graph-bar-wrap"><span class="graph-bar-label">N4</span><div class="graph-bar graph-bar-empty"></div></div>
+                    <div class="graph-bar-wrap"><span class="graph-bar-label">N5</span><div class="graph-bar graph-bar-empty"></div></div>
+                    <div class="graph-bar-wrap"><span class="graph-bar-label">N6</span><div class="graph-bar graph-bar-empty"></div></div>
+                    <div class="graph-bar-wrap"><span class="graph-bar-label">N7</span><div class="graph-bar graph-bar-empty"></div></div>
+                    <div class="graph-bar-wrap"><span class="graph-bar-label">N8</span><div class="graph-bar graph-bar-empty"></div></div>
+                </div>
+            </div>
+
             <h2>Transcript Log</h2>
             <p id="mic-caption" class="mic-caption">Mic transcript: waiting...</p>
             <div id="transcript-log" class="transcript-log">

@@ -303,6 +303,37 @@ body {
     font-size: 1.05rem;
 }
 
+.live-graph-panel {
+    border: 1px solid rgba(126, 242, 212, 0.28);
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 12px;
+    background: linear-gradient(180deg, rgba(10, 31, 52, 0.72), rgba(8, 23, 42, 0.72));
+}
+
+.live-graph-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.live-graph-head h2 {
+    margin: 0;
+}
+
+.live-graph-select-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    color: #c9e2f8;
+    font-size: 0.8rem;
+    font-weight: 700;
+    min-width: 190px;
+}
+
 .mic-caption {
     color: #b9d4ea;
     font-size: 0.9rem;
@@ -687,5 +718,9 @@ body {
 
     .port-select {
         min-width: 100%;
+    }
+
+    .live-graph-select-wrap {
+        width: 100%;
     }
 }
