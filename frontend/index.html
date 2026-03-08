@@ -23,9 +23,30 @@
                     OpenBCI Session: <span class="status-word status-word-bad">Not Started</span>
                 </div>
             </div>
-            <span id="health-pill" class="pill">Checking API...</span>
-            <span id="mic-pill" class="pill mic-pill">Mic: Off</span>
+            <div class="header-pills">
+                <span id="health-pill" class="pill">Checking API...</span>
+                <span id="hw-pill" class="pill">Hardware: --</span>
+                <span id="mic-pill" class="pill mic-pill">Mic: Off</span>
+            </div>
         </header>
+
+        <section id="hw-bar" class="hw-bar hw-bar-disconnected">
+            <div class="hw-bar-left">
+                <span id="hw-icon" class="hw-icon">&#x26A0;</span>
+                <span id="hw-message">OpenBCI not connected</span>
+            </div>
+            <div class="hw-bar-right">
+                <select id="port-select" class="port-select">
+                    <option value="">Scanning...</option>
+                </select>
+                <button id="hw-connect-btn" class="btn btn-hw-connect">Connect</button>
+                <button id="hw-disconnect-btn" class="btn btn-hw-disconnect" style="display:none">Disconnect</button>
+            </div>
+        </section>
+
+        <section id="mock-warning" class="mock-warning" style="display:none">
+            &#x26A0; Using simulated EEG data — results are not real. Connect hardware for live readings.
+        </section>
 
         <section class="controls">
             <button id="start-btn" class="btn btn-primary">Start Interview</button>

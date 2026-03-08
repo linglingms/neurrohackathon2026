@@ -39,6 +39,14 @@ const el = {
     headsetStatus: document.getElementById("headset-status"),
     openbciStatus: document.getElementById("openbci-status"),
     micPill: document.getElementById("mic-pill"),
+    hwPill: document.getElementById("hw-pill"),
+    hwBar: document.getElementById("hw-bar"),
+    hwIcon: document.getElementById("hw-icon"),
+    hwMessage: document.getElementById("hw-message"),
+    hwConnectBtn: document.getElementById("hw-connect-btn"),
+    hwDisconnectBtn: document.getElementById("hw-disconnect-btn"),
+    portSelect: document.getElementById("port-select"),
+    mockWarning: document.getElementById("mock-warning"),
     startBtn: document.getElementById("start-btn"),
     sampleBtn: document.getElementById("sample-btn"),
     endBtn: document.getElementById("end-btn"),
@@ -471,6 +479,84 @@ async function api(path, options = {}) {
     return response.json();
 }
 
+function updateHardwareUI(connected, port) {
+    if (connected) {
+        el.hwPill.textContent = `HW: ${port || "Connected"}`;
+        el.hwPill.className = "pill pill-ok";
+        el.hwBar.className = "hw-bar hw-bar-connected";
+        el.hwIcon.innerHTML = "&#x2705;";
+        el.hwMessage.textContent = `OpenBCI connected on ${port || "serial"}`;
+        el.hwConnectBtn.style.display = "none";
+        el.hwDisconnectBtn.style.display = "";
+        el.portSelect.style.display = "none";
+        el.mockWarning.style.display = "none";
+    } else {
+        el.hwPill.textContent = "HW: Disconnected";
+        el.hwPill.className = "pill pill-bad";
+        el.hwBar.className = "hw-bar hw-bar-disconnected";
+        el.hwIcon.innerHTML = "&#x26A0;";
+        el.hwMessage.textContent = "OpenBCI not connected";
+        el.hwConnectBtn.style.display = "";
+        el.hwDisconnectBtn.style.display = "none";
+        el.portSelect.style.display = "";
+    }
+}
+
+async function scanPorts() {
+    try {
+        const data = await api("/hardware/scan");
+        el.portSelect.innerHTML = "";
+        if (!data.ports.length) {
+            el.portSelect.innerHTML = '<option value="">No ports found</option>';
+            return;
+        }
+        for (const p of data.ports) {
+            const opt = document.createElement("option");
+            opt.value = p.port;
+            opt.textContent = p.likely_openbci
+                ? `${p.port} - ${p.description} (likely OpenBCI)`
+                : `${p.port} - ${p.description}`;
+            el.portSelect.appendChild(opt);
+        }
+    } catch {
+        el.portSelect.innerHTML = '<option value="">Scan failed</option>';
+    }
+}
+
+async function connectHardware() {
+    const port = el.portSelect.value;
+    if (!port) return;
+    el.hwConnectBtn.disabled = true;
+    el.hwConnectBtn.textContent = "Connecting...";
+    try {
+        const data = await api("/hardware/connect", {
+            method: "POST",
+            body: JSON.stringify({ port }),
+        });
+        updateHardwareUI(true, data.port);
+        state.hardwareConnected = true;
+        state.dataSource = "openbci";
+        updateConnectionStatus();
+    } catch (error) {
+        el.hwMessage.textContent = `Connection failed — ${error.message}`;
+    } finally {
+        el.hwConnectBtn.disabled = false;
+        el.hwConnectBtn.textContent = "Connect";
+    }
+}
+
+async function disconnectHardware() {
+    try {
+        await api("/hardware/disconnect", { method: "POST" });
+        updateHardwareUI(false, null);
+        state.hardwareConnected = false;
+        updateConnectionStatus();
+        scanPorts();
+    } catch (error) {
+        el.hwMessage.textContent = `Disconnect failed — ${error.message}`;
+    }
+}
+
 async function scoreUtterance() {
     const result = await api("/session/process", {
         method: "POST",
@@ -478,6 +564,14 @@ async function scoreUtterance() {
     });
     state.lastResult = result;
     state.scores.push(result.deception_probability || 0);
+
+    // Show mock data warning if not using live hardware
+    if (result.data_source === "mock") {
+        el.mockWarning.style.display = "";
+    } else {
+        el.mockWarning.style.display = "none";
+    }
+
     updateSummary(result);
 
     return {
@@ -540,11 +634,13 @@ async function checkHealth() {
         }
 
         updateConnectionStatus();
+        updateHardwareUI(state.hardwareConnected, health.hardware_port || null);
     } catch (error) {
         el.health.textContent = "API Offline";
         el.health.className = "pill pill-bad";
         // Keep last known states to avoid false red flips during brief tunnel/network drops.
         updateConnectionStatus();
+        updateHardwareUI(false, null);
     }
 }
 
@@ -558,11 +654,13 @@ async function startSession() {
             state.dataSource = "openbci";
             state.hardwareConnected = true;
             hardwareConnected = true;
+            updateHardwareUI(true, hardware.port || null);
         }
     } catch (error) {
         hardwareMessage = "Hardware unavailable";
         state.hardwareConnected = false;
         state.dataSource = "mock";
+        updateHardwareUI(false, null);
         hardwareMessage = isLiveOverride
             ? "OpenBCI hardware connect failed. Session started without live headset data."
             : "Hardware unavailable, using mock EEG data";
@@ -669,6 +767,8 @@ el.sampleBtn.addEventListener("click", () => runSample().catch((e) => (el.status
 el.endBtn.addEventListener("click", () => endSession().catch((e) => (el.statusText.textContent = e.message)));
 el.micBtn.addEventListener("click", () => toggleMic().catch((e) => (el.statusText.textContent = e.message)));
 el.exportBtn.addEventListener("click", () => exportSession().catch((e) => (el.statusText.textContent = e.message)));
+el.hwConnectBtn.addEventListener("click", () => connectHardware());
+el.hwDisconnectBtn.addEventListener("click", () => disconnectHardware());
 window.addEventListener("beforeunload", () => {
     stopEegCapture();
     if (state.speechRecognition && state.micListening) {
@@ -685,6 +785,7 @@ updateMicUi();
 renderTranscript();
 updateConnectionStatus();
 checkHealth();
+scanPorts();
 setInterval(() => {
     checkHealth();
 }, STATUS_REFRESH_INTERVAL_MS);

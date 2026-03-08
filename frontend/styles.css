@@ -118,6 +118,102 @@ body {
     color: #ffbcbc;
 }
 
+.header-pills {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* Hardware status bar */
+.hw-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    margin-bottom: 14px;
+    border: 1px solid;
+}
+
+.hw-bar-disconnected {
+    background: rgba(241, 92, 92, 0.1);
+    border-color: rgba(241, 92, 92, 0.35);
+}
+
+.hw-bar-connected {
+    background: rgba(0, 194, 156, 0.1);
+    border-color: rgba(0, 194, 156, 0.35);
+}
+
+.hw-bar-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.hw-icon {
+    font-size: 1.1rem;
+}
+
+.hw-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.port-select {
+    background: #12253e;
+    color: #d0e6fb;
+    border: 1px solid #2a4766;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    min-width: 180px;
+}
+
+.btn-hw-connect {
+    background: #00c2a7;
+    color: #062421;
+    padding: 8px 16px;
+    font-size: 0.85rem;
+    min-width: auto;
+}
+
+.btn-hw-connect:hover {
+    background: #2bd9c2;
+}
+
+.btn-hw-disconnect {
+    background: #5b1f2f;
+    color: #ffdce4;
+    border-color: #8e3950;
+    padding: 8px 16px;
+    font-size: 0.85rem;
+    min-width: auto;
+}
+
+.btn-hw-disconnect:hover {
+    background: #7a2d42;
+}
+
+/* Mock data warning banner */
+.mock-warning {
+    background: rgba(255, 193, 7, 0.15);
+    border: 1px solid rgba(255, 193, 7, 0.4);
+    color: #ffe082;
+    padding: 10px 16px;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 14px;
+    text-align: center;
+}
+
 .controls {
     display: flex;
     flex-wrap: wrap;
@@ -414,5 +510,18 @@ body {
 
     .btn {
         width: 100%;
+    }
+
+    .hw-bar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .hw-bar-right {
+        flex-direction: column;
+    }
+
+    .port-select {
+        min-width: 100%;
     }
 }

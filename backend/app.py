@@ -28,6 +28,36 @@ stream = OpenBCIStream(serial_port=config.SERIAL_PORT)
 session_active = False
 last_hardware_error = None
 
+# --- Auto-connect at startup ---
+def _try_auto_connect():
+    """Attempt to connect to the OpenBCI board on startup."""
+    # First try the configured port
+    try:
+        logger.info(f"Auto-connect: trying configured port {stream.serial_port}...")
+        stream.connect()
+        logger.info(f"Auto-connect: SUCCESS on {stream.serial_port}")
+        return
+    except Exception as e:
+        logger.warning(f"Auto-connect: configured port {stream.serial_port} failed: {e}")
+
+    # Scan for likely OpenBCI ports and try each
+    for candidate in OpenBCIStream.scan_ports():
+        if candidate['port'] == stream.serial_port:
+            continue  # already tried
+        if not candidate['likely_openbci']:
+            continue
+        try:
+            logger.info(f"Auto-connect: trying scanned port {candidate['port']}...")
+            stream.connect(port=candidate['port'])
+            logger.info(f"Auto-connect: SUCCESS on {candidate['port']}")
+            return
+        except Exception as e:
+            logger.warning(f"Auto-connect: {candidate['port']} failed: {e}")
+
+    logger.warning("Auto-connect: no OpenBCI board found — running in mock-data mode")
+
+_try_auto_connect()
+
 
 @app.route('/api/health', methods=['GET'])
 def health():
@@ -35,6 +65,7 @@ def health():
         'status': 'healthy',
         'service': 'lie-detector-backend',
         'hardware_connected': stream.connected,
+        'hardware_port': stream.serial_port if stream.connected else None,
         'session_active': session_active,
         'hardware_error': last_hardware_error,
     })
@@ -45,8 +76,10 @@ def hardware_connect():
     global last_hardware_error
     if stream.connected:
         return jsonify({'status': 'already_connected', 'port': stream.serial_port})
+    data = request.get_json(silent=True) or {}
+    port = data.get('port', config.SERIAL_PORT)
     try:
-        stream.connect()
+        stream.connect(port=port)
         last_hardware_error = None
         return jsonify({'status': 'connected', 'port': stream.serial_port, 'sampling_rate': stream.sampling_rate})
     except Exception as e:
@@ -63,6 +96,13 @@ def hardware_disconnect():
     stream.disconnect()
     last_hardware_error = None
     return jsonify({'status': 'disconnected'})
+
+
+@app.route('/api/hardware/scan', methods=['GET'])
+def hardware_scan():
+    """Scan for available serial ports and flag likely OpenBCI devices."""
+    ports = OpenBCIStream.scan_ports()
+    return jsonify({'ports': ports, 'current_port': stream.serial_port, 'connected': stream.connected})
 
 
 @app.route('/api/hardware/status', methods=['GET'])
@@ -107,21 +147,28 @@ def session_status():
 def process_eeg():
     data = request.get_json(silent=True) or {}
     eeg_data = data.get('eeg_data')
+    data_source = 'provided'
 
     if eeg_data is None:
         if stream.connected:
             # Pull one window of live data from the board (shape: 16 x WINDOW_SIZE*2)
             raw = stream.get_data(n_samples=config.WINDOW_SIZE * 2)
             eeg_data = raw.tolist()
+            data_source = 'live'
         else:
             eeg_data = detector.generate_mock_eeg(
                 n_channels=config.EEG_CHANNELS,
                 n_samples=config.WINDOW_SIZE * 2,
                 deceptive=bool(data.get('deceptive', False)),
             )
+            data_source = 'mock'
+            logger.warning("Processing mock EEG data — hardware not connected")
 
     result = detector.process_eeg_data(eeg_data)
-    return jsonify(result if result else {'error': 'No predictions made'})
+    if result:
+        result['data_source'] = data_source
+        return jsonify(result)
+    return jsonify({'error': 'No predictions made', 'data_source': data_source})
 
 
 @app.route('/api/session/end', methods=['POST'])

@@ -38,3 +38,4 @@ logs/
 # Session exports
 exports/
 .vercel
+.claude/

@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 class OpenBCIStream:
     """Manages a live BrainFlow session with the Cyton+Daisy board."""
 
+    # USB vendor/product IDs for FTDI chips used by OpenBCI dongles
+    OPENBCI_FTDI_VID = 0x0403
+    OPENBCI_FTDI_PID = 0x6015
+
     def __init__(self, serial_port='COM3'):
         self.serial_port = serial_port
         self.board = None
@@ -51,32 +55,65 @@ class OpenBCIStream:
 
         return candidates
 
-    def connect(self):
-        """Prepare and start streaming from the board."""
+    @staticmethod
+    def scan_ports():
+        """Scan for serial ports that look like an OpenBCI dongle.
+
+        Returns a list of dicts with port info, best candidates first.
+        """
+        if not SERIAL_TOOLS_AVAILABLE:
+            return []
+        candidates = []
+        for p in list_ports.comports():
+            is_ftdi = (p.vid == OpenBCIStream.OPENBCI_FTDI_VID and
+                       p.pid == OpenBCIStream.OPENBCI_FTDI_PID)
+            desc_match = any(kw in (p.description or '').lower()
+                            for kw in ('openbci', 'ftdi', 'usb serial', 'usbserial'))
+            candidates.append({
+                'port': p.device,
+                'description': p.description,
+                'vid': p.vid,
+                'pid': p.pid,
+                'likely_openbci': is_ftdi or desc_match,
+            })
+        # Sort so likely OpenBCI ports come first
+        candidates.sort(key=lambda c: (not c['likely_openbci'], c['port']))
+        return candidates
+
+    def connect(self, port=None):
+        """Prepare and start streaming from the board.
+
+        If *port* is provided it overrides the configured serial_port.
+        Otherwise tries the configured port then scans for candidates.
+        """
         if not BRAINFLOW_AVAILABLE:
             raise RuntimeError(
                 "BrainFlow is not installed. Run: pip install -r backend/requirements.txt"
             )
 
+        if port:
+            # Caller specified a port — try only that one
+            self.serial_port = port
+
         candidates = self._build_port_candidates()
         errors = []
 
-        for port in candidates:
+        for candidate_port in candidates:
             try:
                 params = BrainFlowInputParams()
-                params.serial_port = port
+                params.serial_port = candidate_port
                 board = BoardShim(self.board_id, params)
                 board.prepare_session()
                 board.start_stream()
 
                 self.board = board
-                self.serial_port = port
+                self.serial_port = candidate_port
                 self.connected = True
                 logger.info(f"Cyton+Daisy connected on {self.serial_port} @ {self.sampling_rate} Hz")
                 return
             except Exception as exc:
-                errors.append(f"{port}: {exc}")
-                logger.warning(f"OpenBCI connect failed on {port}: {exc}")
+                errors.append(f"{candidate_port}: {exc}")
+                logger.warning(f"OpenBCI connect failed on {candidate_port}: {exc}")
 
         available = self.list_available_ports()
         details = " | ".join(errors) if errors else "No candidate ports to try"
