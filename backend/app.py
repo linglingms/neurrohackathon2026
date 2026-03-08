@@ -199,4 +199,6 @@ def get_config():
 
 if __name__ == '__main__':
     logger.info('Starting Lie Detector API Server')
-    app.run(debug=True, host='0.0.0.0', port=int(os.getenv('PORT', '5050')))
+    # use_reloader=False prevents Flask from spawning a child process that
+    # fights over the serial port with the parent.
+    app.run(debug=True, use_reloader=False, host='0.0.0.0', port=int(os.getenv('PORT', '5050')))
