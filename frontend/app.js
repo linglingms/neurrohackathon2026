@@ -1,6 +1,8 @@
 const host = window.location.hostname || "localhost";
 const params = new URLSearchParams(window.location.search);
-const apiOverride = params.get("api");
+const apiOverrideRaw = params.get("api");
+// "?api=live" uses the Vercel proxy route to avoid ngrok interstitial/CORS issues.
+const apiOverride = apiOverrideRaw === "live" ? `${window.location.origin}/live-api` : apiOverrideRaw;
 const isLiveOverride = !!apiOverride;
 const isLocalStatic = window.location.port === "8080" || host === "localhost" || host === "127.0.0.1";
 
