@@ -1099,22 +1099,28 @@ function clearAll() {
 }
 
 function updateSummary(result) {
-    const scorePct = Math.round((result.deception_probability || 0) * 100);
+    const stressPct = Math.round((result.deception_probability || 0) * 100);
     const confidencePct = Math.round((result.confidence || 0) * 100);
+    const scorePct = Math.round((stressPct + confidencePct) / 2);
+    const spectrumIndex = typeof result.truth_lie_spectrum_index === "number"
+        ? Math.round(result.truth_lie_spectrum_index)
+        : (stressPct * 2);
     const avg = state.scores.length
         ? Math.round((state.scores.reduce((a, b) => a + b, 0) / state.scores.length) * 100)
         : 0;
 
-    el.scoreValue.textContent = `${scorePct}%`;
+    el.scoreValue.textContent = `${spectrumIndex}`;
     el.scoreBar.style.width = `${scorePct}%`;
     el.scoreBar.textContent = `${scorePct}%`;
     el.windowsValue.textContent = String(state.scores.length);
     el.avgValue.textContent = `${avg}%`;
     el.confidenceValue.textContent = `${confidencePct}%`;
 
-    el.statusText.textContent = result.is_deceptive
-        ? "Likely elevated cognitive stress"
-        : "Likely lower cognitive stress";
+    const spectrumLabel = spectrumIndex > 100
+        ? "Lying spectrum"
+        : (spectrumIndex < 100 ? "Truthful spectrum" : "Neutral baseline");
+
+    el.statusText.textContent = `${spectrumLabel} | Stress ${stressPct}% | Confidence ${confidencePct}%`;
 
     updateLiveNodeHistory(result);
     renderLiveGraph();

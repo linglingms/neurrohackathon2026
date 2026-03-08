@@ -116,6 +116,20 @@ class LieDetectorApp:
             'mean_band_power': mean_power,
         }
 
+    @staticmethod
+    def _truth_lie_spectrum_index(overall_stress):
+        """Return spectrum index with 100 as neutral baseline.
+
+        <100: truthful / low-stress leaning
+        100: baseline-neutral
+        >100: lying / high-stress leaning
+        """
+        stress = float(np.clip(overall_stress, 0.0, 1.0))
+        # Map stress percentage (0..100) onto spectrum (0..200) with 100 neutral.
+        # 0% stress -> 0, 50% stress -> 100, 100% stress -> 200.
+        index = stress * 200.0
+        return float(np.clip(index, 0.0, 200.0))
+
     def process_eeg_data(self, eeg_data):
         # Process incoming EEG data and predict deception
         # Args: eeg_data - Array of shape (n_channels, n_samples)
@@ -180,6 +194,7 @@ class LieDetectorApp:
             per_channel_stress=node_stress,
             per_channel_power=channel_powers,
         )
+        spectrum_index = self._truth_lie_spectrum_index(overall_stress)
         result = {
             'deception_probability': overall_stress,
             'is_deceptive': bool(overall_stress > config.DECEPTION_THRESHOLD),
@@ -191,6 +206,11 @@ class LieDetectorApp:
             'alpha_beta_ratio_current': current_ratio,
             'alpha_beta_ratio_baseline': baseline_ratio,
             'baseline_ready': self.baseline_alpha_beta_ratio is not None,
+            'truth_lie_spectrum_index': spectrum_index,
+            'truth_lie_label': (
+                'truthful_spectrum' if spectrum_index < 100.0
+                else ('lying_spectrum' if spectrum_index > 100.0 else 'neutral_baseline')
+            ),
             'legacy_model_probability': float(np.mean(legacy_predictions)) if legacy_predictions else None,
             'confidence_details': confidence_details,
         }
