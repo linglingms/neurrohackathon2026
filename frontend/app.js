@@ -229,6 +229,7 @@ function initSocket() {
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionAttempts: Infinity,
+        extraHeaders: { "ngrok-skip-browser-warning": "true" },
     });
 
     socket.on("connect", () => {
@@ -920,8 +921,12 @@ function updateSummary(result) {
 
 async function api(path, options = {}) {
     const response = await fetch(`${activeApiBaseUrl}${path}`, {
-        headers: { "Content-Type": "application/json" },
         ...options,
+        headers: {
+            "Content-Type": "application/json",
+            "ngrok-skip-browser-warning": "true",
+            ...(options.headers || {}),
+        },
     });
     if (!response.ok) {
         let message = `Request failed: ${path}`;
