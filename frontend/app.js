@@ -1218,12 +1218,45 @@ function buildLocalSessionReport() {
     };
 }
 
+function getInterviewerPromptForIndex(intervieweeIndex) {
+    for (let i = intervieweeIndex - 1; i >= 0; i -= 1) {
+        const candidate = state.transcript[i];
+        if (candidate && candidate.speaker === "Interviewer") {
+            return candidate.text || "";
+        }
+    }
+    return "";
+}
+
 function getTopIntervieweeStatements(metricKey) {
     return state.transcript
-        .filter((entry) => entry && entry.speaker === "Interviewee")
-        .filter((entry) => typeof entry[metricKey] === "number" && !Number.isNaN(entry[metricKey]))
-        .sort((a, b) => b[metricKey] - a[metricKey])
-        .slice(0, 5);
+        .map((entry, index) => ({ entry, index }))
+        .filter(({ entry }) => entry && entry.speaker === "Interviewee")
+        .filter(({ entry }) => typeof entry[metricKey] === "number" && !Number.isNaN(entry[metricKey]))
+        .sort((a, b) => b.entry[metricKey] - a.entry[metricKey])
+        .slice(0, 5)
+        .map(({ entry, index }) => ({
+            ...entry,
+            interviewerPrompt: getInterviewerPromptForIndex(index),
+        }));
+}
+
+function buildRankingStatementBox(row) {
+    if (!row) {
+        return state.active ? "&nbsp;" : '<span class="ranking-empty-placeholder">--</span>';
+    }
+
+    const interviewerText = escapeHtml(row.interviewerPrompt || "");
+    const intervieweeText = escapeHtml(row.text || "");
+
+    return [
+        '<div class="ranking-statement-block">',
+        '<div class="ranking-statement-label">Interviewer</div>',
+        `<div class="ranking-statement-text">${interviewerText || "&nbsp;"}</div>`,
+        '<div class="ranking-statement-label">Interviewee</div>',
+        `<div class="ranking-statement-text ranking-statement-answer">${intervieweeText || "&nbsp;"}</div>`,
+        '</div>',
+    ].join("");
 }
 
 function renderSentimentRankingAnalysis() {
@@ -1239,18 +1272,18 @@ function renderSentimentRankingAnalysis() {
         const stressRow = topStress[i] || null;
         const confidenceRow = topConfidence[i] || null;
 
-        const stressStatement = stressRow ? escapeHtml(stressRow.text || "") : "";
-        const stressPercent = stressRow ? `${stressRow.stress.toFixed(1)}%` : "";
-        const confidenceStatement = confidenceRow ? escapeHtml(confidenceRow.text || "") : "";
-        const confidencePercent = confidenceRow ? `${confidenceRow.confidence.toFixed(1)}%` : "";
+        const stressStatement = buildRankingStatementBox(stressRow);
+        const stressPercent = stressRow ? `${stressRow.stress.toFixed(1)}%` : (state.active ? "&nbsp;" : '<span class="ranking-empty-placeholder">--</span>');
+        const confidenceStatement = buildRankingStatementBox(confidenceRow);
+        const confidencePercent = confidenceRow ? `${confidenceRow.confidence.toFixed(1)}%` : (state.active ? "&nbsp;" : '<span class="ranking-empty-placeholder">--</span>');
 
         rows.push([
             "<tr>",
             `<td>${i + 1}</td>`,
-            `<td class="ranking-statement-cell">${stressStatement || "&nbsp;"}</td>`,
-            `<td>${stressPercent || "&nbsp;"}</td>`,
-            `<td class="ranking-statement-cell">${confidenceStatement || "&nbsp;"}</td>`,
-            `<td>${confidencePercent || "&nbsp;"}</td>`,
+            `<td class="ranking-statement-cell">${stressStatement}</td>`,
+            `<td class="ranking-percent-cell">${stressPercent}</td>`,
+            `<td class="ranking-statement-cell">${confidenceStatement}</td>`,
+            `<td class="ranking-percent-cell">${confidencePercent}</td>`,
             "</tr>",
         ].join(""));
     }

@@ -875,6 +875,47 @@ body {
     color: #d7eafc;
 }
 
+.ranking-percent-cell {
+    text-align: center;
+}
+
+.ranking-empty-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 26px;
+    color: #95b4cf;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+}
+
+.ranking-statement-block {
+    display: grid;
+    gap: 4px;
+}
+
+.ranking-statement-label {
+    color: #9fc0d9;
+    font-size: 0.66rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-weight: 700;
+}
+
+.ranking-statement-text {
+    border: 1px solid rgba(159, 197, 232, 0.25);
+    background: rgba(18, 37, 62, 0.55);
+    border-radius: 6px;
+    padding: 6px;
+    min-height: 28px;
+}
+
+.ranking-statement-answer {
+    border-color: rgba(126, 242, 212, 0.4);
+    background: rgba(9, 36, 37, 0.4);
+}
+
 @media (max-width: 768px) {
     .container {
         padding: 16px 14px 30px;
