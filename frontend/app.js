@@ -992,7 +992,7 @@ function updateButtons() {
     el.startBtn.disabled = state.active || !canStartInterview();
     el.sampleBtn.disabled = true;
     el.endBtn.disabled = !state.active;
-    const clearAllowed = el.startBtn.disabled && el.endBtn.disabled;
+    const clearAllowed = !state.active && hasSessionDataForExport();
     if (el.clearBtn) {
         el.clearBtn.disabled = !clearAllowed;
     }
@@ -1057,9 +1057,9 @@ function downloadJsonFile(payload, filenamePrefix = "session_export") {
 }
 
 function clearAll() {
-    const clearAllowed = el.startBtn.disabled && el.endBtn.disabled;
+    const clearAllowed = !state.active && hasSessionDataForExport();
     if (!clearAllowed) {
-        el.statusText.textContent = "Clear All is available only when Start and End are unavailable.";
+        el.statusText.textContent = "Clear All is available only when interview is not active and there is data to clear.";
         return;
     }
 
