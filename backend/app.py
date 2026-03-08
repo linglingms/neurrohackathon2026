@@ -4,6 +4,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import logging
 import os
+import time
 
 try:
     from backend.main import LieDetectorApp
@@ -27,6 +28,27 @@ detector = LieDetectorApp()
 stream = OpenBCIStream(serial_port=config.SERIAL_PORT)
 session_active = False
 last_hardware_error = None
+
+CONNECT_RETRY_ATTEMPTS = int(os.getenv('OPENBCI_CONNECT_RETRIES', '3'))
+CONNECT_RETRY_DELAY_SEC = float(os.getenv('OPENBCI_CONNECT_RETRY_DELAY_SEC', '1.0'))
+
+
+def _connect_with_retry(port, attempts=CONNECT_RETRY_ATTEMPTS, delay_sec=CONNECT_RETRY_DELAY_SEC):
+    """Try opening the board multiple times to survive transient board-not-ready races."""
+    last_error = None
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            logger.info(f"Hardware connect attempt {attempt}/{attempts} on {port}")
+            stream.connect(port=port)
+            return
+        except Exception as exc:
+            last_error = exc
+            logger.warning(f"Hardware connect attempt {attempt} failed on {port}: {exc}")
+            if attempt < attempts:
+                time.sleep(delay_sec)
+
+    if last_error is not None:
+        raise last_error
 
 # --- Auto-connect at startup ---
 def _try_auto_connect():
@@ -71,15 +93,20 @@ def health():
     })
 
 
-@app.route('/api/hardware/connect', methods=['POST'])
+@app.route('/api/hardware/connect', methods=['POST', 'GET'])
 def hardware_connect():
     global last_hardware_error
     if stream.connected:
         return jsonify({'status': 'already_connected', 'port': stream.serial_port})
-    data = request.get_json(silent=True) or {}
-    port = data.get('port', config.SERIAL_PORT)
+
+    if request.method == 'GET':
+        port = request.args.get('port', config.SERIAL_PORT)
+    else:
+        data = request.get_json(silent=True) or {}
+        port = data.get('port', config.SERIAL_PORT)
+
     try:
-        stream.connect(port=port)
+        _connect_with_retry(port=port)
         last_hardware_error = None
         return jsonify({'status': 'connected', 'port': stream.serial_port, 'sampling_rate': stream.sampling_rate})
     except Exception as e:

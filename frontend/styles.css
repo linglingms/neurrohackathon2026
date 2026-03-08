@@ -124,6 +124,13 @@ body {
     flex-wrap: wrap;
 }
 
+.api-base-label {
+    margin-top: 10px;
+    font-size: 0.8rem;
+    color: #a9c5de;
+    word-break: break-all;
+}
+
 /* Hardware status bar */
 .hw-bar {
     display: flex;

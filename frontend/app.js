@@ -9,11 +9,31 @@ function normalizeApiBase(url) {
         return null;
     }
 
-    const trimmed = url.replace(/\/+$/, "");
-    return /\/api$/i.test(trimmed) ? trimmed : `${trimmed}/api`;
+    const trimmed = url.trim();
+
+    // Accept both API base URLs and accidentally pasted endpoint URLs.
+    // Examples handled:
+    // - https://host
+    // - https://host/api
+    // - https://host/api/health
+    // - https://host/api/session/status
+    try {
+        const parsed = new URL(trimmed);
+        const apiMatch = parsed.pathname.match(/^(.*?\/api)(?:\/.*)?\/?$/i);
+        parsed.pathname = apiMatch ? apiMatch[1] : `${parsed.pathname.replace(/\/+$/, "")}/api`;
+        parsed.search = "";
+        parsed.hash = "";
+        return parsed.toString().replace(/\/+$/, "");
+    } catch (error) {
+        // Fallback for non-standard values; keep behavior predictable.
+        const normalized = trimmed.replace(/\/+$/, "");
+        const apiMatch = normalized.match(/^(.*?\/api)(?:\/.*)?$/i);
+        return apiMatch ? apiMatch[1] : `${normalized}/api`;
+    }
 }
 
 const API_BASE_URL = normalizeApiBase(apiOverride) || (isLocalStatic ? `http://${host}:5050/api` : `${window.location.origin}/api`);
+let activeApiBaseUrl = API_BASE_URL;
 const MAX_TRANSCRIPT_ROWS = 160;
 const EEG_CAPTURE_INTERVAL_MS = 1000;
 const STATUS_REFRESH_INTERVAL_MS = 5000;
@@ -39,6 +59,7 @@ const state = {
 
 const el = {
     health: document.getElementById("health-pill"),
+    apiBaseLabel: document.getElementById("api-base-label"),
     headsetStatus: document.getElementById("headset-status"),
     openbciStatus: document.getElementById("openbci-status"),
     micPill: document.getElementById("mic-pill"),
@@ -66,6 +87,21 @@ const el = {
     transcriptLog: document.getElementById("transcript-log"),
     micCaption: document.getElementById("mic-caption"),
 };
+
+function setApiBaseLabel(baseUrl, online) {
+    if (!el.apiBaseLabel) {
+        return;
+    }
+
+    if (online) {
+        el.apiBaseLabel.textContent = `API Base: ${baseUrl}`;
+        el.apiBaseLabel.style.color = "#7ef2d4";
+        return;
+    }
+
+    el.apiBaseLabel.textContent = `API Base: offline (last tried ${baseUrl})`;
+    el.apiBaseLabel.style.color = "#ffbcbc";
+}
 
 function setHeadsetStatus(connected) {
     if (!el.headsetStatus) {
@@ -472,7 +508,7 @@ function updateSummary(result) {
 }
 
 async function api(path, options = {}) {
-    const response = await fetch(`${API_BASE_URL}${path}`, {
+    const response = await fetch(`${activeApiBaseUrl}${path}`, {
         headers: { "Content-Type": "application/json" },
         ...options,
     });
@@ -487,6 +523,51 @@ async function api(path, options = {}) {
         throw new Error(message);
     }
     return response.json();
+}
+
+function getApiBaseCandidates() {
+    const candidates = new Set();
+    const fromOverride = normalizeApiBase(apiOverride);
+
+    if (fromOverride) {
+        candidates.add(fromOverride);
+        candidates.add(API_BASE_URL);
+        candidates.add(activeApiBaseUrl);
+        // In explicit live mode (?api=...), never fall back to same-origin serverless routes
+        // because they run mock-only logic and would hide hardware connectivity issues.
+        return Array.from(candidates).filter(Boolean);
+    }
+
+    if (isLocalStatic) {
+        candidates.add(`http://${host}:5050/api`);
+    }
+
+    candidates.add(`${window.location.origin}/api`);
+    candidates.add(API_BASE_URL);
+    candidates.add(activeApiBaseUrl);
+
+    return Array.from(candidates).filter(Boolean);
+}
+
+async function resolveHealthyApiBase() {
+    const candidates = getApiBaseCandidates();
+
+    for (const baseUrl of candidates) {
+        try {
+            const response = await fetch(`${baseUrl}/health`);
+            if (!response.ok) {
+                continue;
+            }
+            const payload = await response.json();
+            activeApiBaseUrl = baseUrl;
+            setApiBaseLabel(baseUrl, true);
+            return { baseUrl, payload };
+        } catch (error) {
+            // Try next candidate.
+        }
+    }
+
+    throw new Error("No healthy API base found");
 }
 
 function updateHardwareUI(connected, port, options = {}) {
@@ -626,7 +707,7 @@ function buildLocalSessionReport() {
 
 async function checkHealth() {
     try {
-        const health = await api("/health");
+        const { payload: health } = await resolveHealthyApiBase();
         state.apiOnline = true;
         el.health.textContent = "API Online";
         el.health.className = "pill pill-ok";
@@ -686,6 +767,7 @@ async function checkHealth() {
         state.apiOnline = false;
         el.health.textContent = "API Offline";
         el.health.className = "pill pill-bad";
+        setApiBaseLabel(activeApiBaseUrl, false);
         // Keep last known states to avoid false red flips during brief tunnel/network drops.
         updateConnectionStatus();
         updateHardwareUI(state.hardwareConnected, state.hardwarePort, {
@@ -717,12 +799,15 @@ async function startSession() {
     } catch (error) {
         hardwareMessage = "Hardware unavailable";
         state.hardwareConnected = false;
-        state.dataSource = "mock";
+        state.dataSource = "unknown";
         state.hardwareError = error.message;
         updateHardwareUI(false, state.hardwarePort, { apiOnline: true, error: state.hardwareError });
-        hardwareMessage = isLiveOverride
-            ? "OpenBCI hardware connect failed. Session started without live headset data."
-            : "Hardware unavailable, using mock EEG data";
+        if (isLiveOverride) {
+            el.mockWarning.style.display = "none";
+            throw new Error(`OpenBCI hardware connect failed: ${error.message}`);
+        }
+        state.dataSource = "mock";
+        hardwareMessage = "Hardware unavailable, using mock EEG data";
     }
 
     if (!hardwareMessage && !hardwareConnected) {
