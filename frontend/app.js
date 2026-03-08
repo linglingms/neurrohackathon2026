@@ -32,6 +32,9 @@ const state = {
     eegTimer: null,
     hardwareConnected: false,
     sessionActive: false,
+    apiOnline: false,
+    hardwarePort: null,
+    hardwareError: null,
 };
 
 const el = {
@@ -474,28 +477,49 @@ async function api(path, options = {}) {
         ...options,
     });
     if (!response.ok) {
-        throw new Error(`Request failed: ${path}`);
+        let message = `Request failed: ${path}`;
+        try {
+            const payload = await response.json();
+            message = payload.error || payload.message || message;
+        } catch (error) {
+            // Keep fallback message when body is not JSON.
+        }
+        throw new Error(message);
     }
     return response.json();
 }
 
-function updateHardwareUI(connected, port) {
+function updateHardwareUI(connected, port, options = {}) {
+    const { apiOnline = true, error = null } = options;
+    const portLabel = port || "serial";
+
     if (connected) {
         el.hwPill.textContent = `HW: ${port || "Connected"}`;
         el.hwPill.className = "pill pill-ok";
         el.hwBar.className = "hw-bar hw-bar-connected";
         el.hwIcon.innerHTML = "&#x2705;";
-        el.hwMessage.textContent = `OpenBCI connected on ${port || "serial"}`;
+        el.hwMessage.textContent = `OpenBCI connected on ${portLabel}`;
         el.hwConnectBtn.style.display = "none";
         el.hwDisconnectBtn.style.display = "";
         el.portSelect.style.display = "none";
         el.mockWarning.style.display = "none";
     } else {
-        el.hwPill.textContent = "HW: Disconnected";
-        el.hwPill.className = "pill pill-bad";
+        if (!apiOnline) {
+            el.hwPill.textContent = "HW: Last known";
+            el.hwPill.className = "pill";
+        } else {
+            el.hwPill.textContent = "HW: Disconnected";
+            el.hwPill.className = "pill pill-bad";
+        }
         el.hwBar.className = "hw-bar hw-bar-disconnected";
         el.hwIcon.innerHTML = "&#x26A0;";
-        el.hwMessage.textContent = "OpenBCI not connected";
+        if (!apiOnline) {
+            el.hwMessage.textContent = "API offline. Showing last known hardware status.";
+        } else if (error) {
+            el.hwMessage.textContent = `OpenBCI not connected: ${error}`;
+        } else {
+            el.hwMessage.textContent = "OpenBCI not connected";
+        }
         el.hwConnectBtn.style.display = "";
         el.hwDisconnectBtn.style.display = "none";
         el.portSelect.style.display = "";
@@ -533,12 +557,15 @@ async function connectHardware() {
             method: "POST",
             body: JSON.stringify({ port }),
         });
-        updateHardwareUI(true, data.port);
+        state.hardwarePort = data.port || port;
+        state.hardwareError = null;
+        updateHardwareUI(true, state.hardwarePort, { apiOnline: true, error: null });
         state.hardwareConnected = true;
         state.dataSource = "openbci";
         updateConnectionStatus();
     } catch (error) {
-        el.hwMessage.textContent = `Connection failed — ${error.message}`;
+        state.hardwareError = error.message;
+        updateHardwareUI(false, state.hardwarePort, { apiOnline: true, error: state.hardwareError });
     } finally {
         el.hwConnectBtn.disabled = false;
         el.hwConnectBtn.textContent = "Connect";
@@ -548,8 +575,10 @@ async function connectHardware() {
 async function disconnectHardware() {
     try {
         await api("/hardware/disconnect", { method: "POST" });
-        updateHardwareUI(false, null);
+        state.hardwareError = null;
+        updateHardwareUI(false, null, { apiOnline: true, error: null });
         state.hardwareConnected = false;
+        state.hardwarePort = null;
         updateConnectionStatus();
         scanPorts();
     } catch (error) {
@@ -598,6 +627,7 @@ function buildLocalSessionReport() {
 async function checkHealth() {
     try {
         const health = await api("/health");
+        state.apiOnline = true;
         el.health.textContent = "API Online";
         el.health.className = "pill pill-ok";
 
@@ -612,11 +642,25 @@ async function checkHealth() {
             state.sessionActive = health.session_active;
         }
 
+        if (typeof health.hardware_error === "string" || health.hardware_error === null) {
+            state.hardwareError = health.hardware_error;
+        }
+
+        if (health.hardware_port) {
+            state.hardwarePort = health.hardware_port;
+        }
+
         // Some deployments expose hardware and session details separately.
         try {
             const hardware = await api("/hardware/status");
             if (typeof hardware.connected === "boolean") {
                 state.hardwareConnected = hardware.connected;
+            }
+            if (hardware.port) {
+                state.hardwarePort = hardware.port;
+            }
+            if (typeof hardware.error === "string" || hardware.error === null) {
+                state.hardwareError = hardware.error;
             }
         } catch (error) {
             // Ignore when hardware route is not available (for hosted serverless APIs).
@@ -634,33 +678,48 @@ async function checkHealth() {
         }
 
         updateConnectionStatus();
-        updateHardwareUI(state.hardwareConnected, health.hardware_port || null);
+        updateHardwareUI(state.hardwareConnected, state.hardwarePort, {
+            apiOnline: true,
+            error: state.hardwareError,
+        });
     } catch (error) {
+        state.apiOnline = false;
         el.health.textContent = "API Offline";
         el.health.className = "pill pill-bad";
         // Keep last known states to avoid false red flips during brief tunnel/network drops.
         updateConnectionStatus();
-        updateHardwareUI(false, null);
+        updateHardwareUI(state.hardwareConnected, state.hardwarePort, {
+            apiOnline: false,
+            error: state.hardwareError,
+        });
     }
 }
 
 async function startSession() {
     let hardwareMessage = "";
     let hardwareConnected = false;
+    const selectedPort = el.portSelect && el.portSelect.value ? el.portSelect.value : null;
     try {
-        const hardware = await api("/hardware/connect", { method: "POST" });
+        const payload = selectedPort ? { port: selectedPort } : {};
+        const hardware = await api("/hardware/connect", {
+            method: "POST",
+            body: JSON.stringify(payload),
+        });
         if (hardware && (hardware.status === "connected" || hardware.status === "already_connected")) {
             hardwareMessage = `Hardware: ${hardware.status.replace("_", " ")}`;
             state.dataSource = "openbci";
             state.hardwareConnected = true;
             hardwareConnected = true;
-            updateHardwareUI(true, hardware.port || null);
+            state.hardwarePort = hardware.port || selectedPort;
+            state.hardwareError = null;
+            updateHardwareUI(true, state.hardwarePort, { apiOnline: true, error: null });
         }
     } catch (error) {
         hardwareMessage = "Hardware unavailable";
         state.hardwareConnected = false;
         state.dataSource = "mock";
-        updateHardwareUI(false, null);
+        state.hardwareError = error.message;
+        updateHardwareUI(false, state.hardwarePort, { apiOnline: true, error: state.hardwareError });
         hardwareMessage = isLiveOverride
             ? "OpenBCI hardware connect failed. Session started without live headset data."
             : "Hardware unavailable, using mock EEG data";
