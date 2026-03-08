@@ -55,6 +55,8 @@ session_active = False
 last_hardware_error = None
 lsl_connected = False
 lsl_stream_name = None
+audio_lsl_connected = False
+audio_lsl_stream_name = None
 
 CONNECT_RETRY_ATTEMPTS = int(os.getenv('OPENBCI_CONNECT_RETRIES', '3'))
 CONNECT_RETRY_DELAY_SEC = float(os.getenv('OPENBCI_CONNECT_RETRY_DELAY_SEC', '1.0'))
@@ -110,6 +112,8 @@ def _lsl_status_payload(timeout=0.3):
 # ---------------------------------------------------------------------------
 _lsl_thread = None
 _lsl_stop = threading.Event()
+_audio_thread = None
+_audio_stop = threading.Event()
 
 
 def _lsl_consumer_loop():
@@ -165,10 +169,94 @@ def _lsl_consumer_loop():
                 result = detector.process_eeg_data(eeg_data)
                 if result:
                     result["data_source"] = "lsl"
+                    result["server_timestamp_ms"] = int(time.time() * 1000)
                     socketio.emit("eeg_score", result)
 
     lsl_connected = False
     logger.info("LSL consumer: stopped")
+
+
+def _resolve_audio_stream(timeout=2.0):
+    """Resolve an LSL audio stream from configurable type list and optional name."""
+    stream_types = [
+        value.strip() for value in os.getenv("LSL_AUDIO_STREAM_TYPES", "Audio,AUDIO").split(",") if value.strip()
+    ]
+    preferred_name = os.getenv("LSL_AUDIO_STREAM_NAME")
+
+    for stream_type in stream_types:
+        streams = resolve_byprop("type", stream_type, timeout=timeout)
+        if not streams:
+            continue
+        if preferred_name:
+            for stream in streams:
+                if stream.name() == preferred_name:
+                    return stream
+        return streams[0]
+
+    return None
+
+
+def _audio_consumer_loop():
+    """Background thread: pull LSL audio chunks and emit timeline levels."""
+    global audio_lsl_connected, audio_lsl_stream_name
+
+    logger.info("Audio LSL consumer: resolving stream...")
+    stream = None
+    while not _audio_stop.is_set() and stream is None:
+        stream = _resolve_audio_stream(timeout=2.0)
+        if stream is None:
+            logger.info("Audio LSL consumer: no audio stream found yet, retrying...")
+
+    if stream is None:
+        logger.warning("Audio LSL consumer: stopped before finding a stream")
+        return
+
+    inlet = StreamInlet(stream, max_chunklen=256)
+    info = inlet.info()
+    audio_lsl_stream_name = info.name()
+    audio_lsl_connected = True
+
+    socketio.emit("audio_status", {
+        "connected": True,
+        "stream_name": audio_lsl_stream_name,
+        "srate": int(info.nominal_srate()),
+        "channels": info.channel_count(),
+    })
+
+    logger.info(
+        "Audio LSL consumer: connected to '%s' (%s ch @ %s Hz)",
+        audio_lsl_stream_name,
+        info.channel_count(),
+        int(info.nominal_srate()),
+    )
+
+    while not _audio_stop.is_set():
+        samples, timestamps = inlet.pull_chunk(timeout=0.1, max_samples=256)
+        if not timestamps:
+            continue
+
+        arr = np.asarray(samples, dtype=np.float32)
+        if arr.size == 0:
+            continue
+
+        # RMS amplitude is a compact and robust audio activity signal.
+        rms = float(np.sqrt(np.mean(np.square(arr))))
+        peak = float(np.max(np.abs(arr)))
+        socketio.emit("audio_level", {
+            "server_timestamp_ms": int(time.time() * 1000),
+            "lsl_timestamp": float(timestamps[-1]),
+            "rms": rms,
+            "peak": peak,
+            "n_samples": int(arr.shape[0]),
+            "stream_name": audio_lsl_stream_name,
+        })
+
+    audio_lsl_connected = False
+    socketio.emit("audio_status", {
+        "connected": False,
+        "stream_name": audio_lsl_stream_name,
+    })
+    logger.info("Audio LSL consumer: stopped")
 
 
 def start_lsl_consumer():
@@ -188,6 +276,22 @@ def stop_lsl_consumer():
     global lsl_connected
     _lsl_stop.set()
     lsl_connected = False
+
+
+def start_audio_consumer():
+    """Start background LSL audio reader thread (idempotent)."""
+    global _audio_thread
+    if _audio_thread and _audio_thread.is_alive():
+        return
+
+    _audio_stop.clear()
+    _audio_thread = threading.Thread(target=_audio_consumer_loop, daemon=True)
+    _audio_thread.start()
+    logger.info("Audio LSL consumer thread started")
+
+
+def stop_audio_consumer():
+    _audio_stop.set()
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +338,8 @@ def _try_auto_connect():
 _try_auto_connect()
 if LSL_AVAILABLE:
     start_lsl_consumer()
+    if os.getenv('LSL_AUDIO_ENABLE', 'true').lower() in ('1', 'true', 'yes', 'on'):
+        start_audio_consumer()
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +353,10 @@ def on_ws_connect():
         "connected": bool(source) or lsl_connected,
         "source": "lsl" if lsl_connected else (source if source else "none"),
         "stream_name": lsl_stream_name,
+    })
+    socketio.emit("audio_status", {
+        "connected": audio_lsl_connected,
+        "stream_name": audio_lsl_stream_name,
     })
 
 
@@ -264,6 +374,8 @@ def health():
         'hardware_port': _active_port_label(),
         'hardware_source': source,
         **lsl_status,
+        'audio_lsl_connected': audio_lsl_connected,
+        'audio_lsl_stream_name': audio_lsl_stream_name,
         'session_active': session_active,
         'hardware_error': last_hardware_error,
     })
@@ -369,6 +481,8 @@ def lsl_status():
     payload.update({
         'connected': bool(source),
         'source': source,
+        'audio_lsl_connected': audio_lsl_connected,
+        'audio_lsl_stream_name': audio_lsl_stream_name,
         'hardware_error': last_hardware_error,
     })
     return jsonify(payload)
@@ -429,6 +543,7 @@ def process_eeg():
     result = detector.process_eeg_data(eeg_data)
     if result:
         result['data_source'] = data_source
+        result['server_timestamp_ms'] = int(time.time() * 1000)
         return jsonify(result)
     return jsonify({'error': 'No predictions made', 'data_source': data_source})
 

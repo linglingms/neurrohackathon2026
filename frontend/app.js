@@ -39,6 +39,10 @@ let activeApiBaseUrl = API_BASE_URL;
 const SOCKET_URL = API_BASE_URL.replace(/\/api\/?$/, "");
 const NGROK_HOST_PATTERN = /(^|\.)ngrok-free\.app$|(^|\.)ngrok\.io$/i;
 const MAX_TRANSCRIPT_ROWS = 160;
+const MAX_EEG_SNAPSHOTS = 320;
+const MAX_AUDIO_SNAPSHOTS = 640;
+const EEG_SNAPSHOT_RETENTION_MS = 2 * 60 * 1000;
+const AUDIO_SNAPSHOT_RETENTION_MS = 2 * 60 * 1000;
 const EEG_CAPTURE_INTERVAL_MS = 1000;
 const STATUS_REFRESH_INTERVAL_MS = 5000;
 const TRANSCRIPT_VISUALIZATION_OPTIONS = [
@@ -78,6 +82,8 @@ const state = {
     openbciConnected: false,
     lslConnected: false,
     lslStreamName: null,
+    audioLslConnected: false,
+    audioLslStreamName: null,
     sessionActive: false,
     sessionStartedAt: null,
     speechTurnStartedAt: null,
@@ -87,6 +93,8 @@ const state = {
     liveVisualization: TRANSCRIPT_VISUALIZATION_OPTIONS[0],
     liveNodeIndex: 0,
     liveNodeHistory: Array.from({ length: 8 }, () => []),
+    eegSnapshots: [],
+    audioSnapshots: [],
     socketConnected: false,
     lslActive: false,
 };
@@ -96,6 +104,7 @@ const el = {
     apiBaseLabel: document.getElementById("api-base-label"),
     headsetStatus: document.getElementById("headset-status"),
     lslStatus: document.getElementById("lsl-status"),
+    audioStatus: document.getElementById("audio-status"),
     openbciStatus: document.getElementById("openbci-status"),
     micPill: document.getElementById("mic-pill"),
     hwPill: document.getElementById("hw-pill"),
@@ -201,6 +210,99 @@ function updateLiveNodeHistory(result) {
     }
 }
 
+function getResultTimestampMs(result) {
+    if (result && typeof result.server_timestamp_ms === "number") {
+        return result.server_timestamp_ms;
+    }
+    if (result && typeof result.timestamp_ms === "number") {
+        return result.timestamp_ms;
+    }
+    return Date.now();
+}
+
+function recordEegSnapshot(result) {
+    if (!result) {
+        return;
+    }
+
+    const nodes = buildNodeStressPercentages(result);
+    const confidence = toPercent(result.confidence || 0);
+    const timestampMs = getResultTimestampMs(result);
+
+    state.eegSnapshots.push({
+        timestampMs,
+        nodes,
+        confidence,
+        dataSource: result.data_source || state.dataSource,
+    });
+
+    const cutoff = Date.now() - EEG_SNAPSHOT_RETENTION_MS;
+    state.eegSnapshots = state.eegSnapshots
+        .filter((snapshot) => snapshot.timestampMs >= cutoff)
+        .slice(-MAX_EEG_SNAPSHOTS);
+}
+
+function recordAudioSnapshot(sample) {
+    if (!sample) {
+        return;
+    }
+
+    const timestampMs = typeof sample.server_timestamp_ms === "number"
+        ? sample.server_timestamp_ms
+        : Date.now();
+
+    state.audioSnapshots.push({
+        timestampMs,
+        rms: typeof sample.rms === "number" ? sample.rms : null,
+        peak: typeof sample.peak === "number" ? sample.peak : null,
+    });
+
+    const cutoff = Date.now() - AUDIO_SNAPSHOT_RETENTION_MS;
+    state.audioSnapshots = state.audioSnapshots
+        .filter((snapshot) => snapshot.timestampMs >= cutoff)
+        .slice(-MAX_AUDIO_SNAPSHOTS);
+}
+
+function getAudioSyncDeltaMs(turnEndedAt) {
+    if (!state.audioSnapshots.length) {
+        return null;
+    }
+
+    let bestDelta = Math.abs(state.audioSnapshots[0].timestampMs - turnEndedAt);
+    for (let i = 1; i < state.audioSnapshots.length; i += 1) {
+        const delta = Math.abs(state.audioSnapshots[i].timestampMs - turnEndedAt);
+        if (delta < bestDelta) {
+            bestDelta = delta;
+        }
+    }
+    return bestDelta;
+}
+
+function getMetricsForTurn(turnEndedAt) {
+    if (!state.eegSnapshots.length) {
+        return getLatestMetrics();
+    }
+
+    let best = state.eegSnapshots[0];
+    let bestDelta = Math.abs(best.timestampMs - turnEndedAt);
+
+    for (let i = 1; i < state.eegSnapshots.length; i += 1) {
+        const candidate = state.eegSnapshots[i];
+        const delta = Math.abs(candidate.timestampMs - turnEndedAt);
+        if (delta < bestDelta) {
+            best = candidate;
+            bestDelta = delta;
+        }
+    }
+
+    return {
+        nodes: Array.isArray(best.nodes) ? best.nodes : new Array(8).fill(null),
+        confidence: typeof best.confidence === "number" ? best.confidence : null,
+        syncDeltaMs: bestDelta,
+        source: best.dataSource,
+    };
+}
+
 function setApiBaseLabel(baseUrl, online) {
     if (!el.apiBaseLabel) {
         return;
@@ -290,6 +392,16 @@ function initSocket() {
         state.sessionActive = !!data.active;
         updateConnectionStatus();
     });
+
+    socket.on("audio_status", (data) => {
+        state.audioLslConnected = !!data.connected;
+        state.audioLslStreamName = data.stream_name || null;
+        updateConnectionStatus();
+    });
+
+    socket.on("audio_level", (data) => {
+        recordAudioSnapshot(data);
+    });
 }
 
 initSocket();
@@ -324,9 +436,20 @@ function setLslStatus(connected, streamName = null) {
     el.lslStatus.innerHTML = `LSL: <span class="${statusClass}">${label}</span>`;
 }
 
+function setAudioStatus(connected, streamName = null) {
+    if (!el.audioStatus) {
+        return;
+    }
+
+    const label = connected ? `Connected${streamName ? ` (${streamName})` : ""}` : "Disconnected";
+    const statusClass = connected ? "status-word status-word-ok" : "status-word status-word-bad";
+    el.audioStatus.innerHTML = `Audio LSL: <span class="${statusClass}">${label}</span>`;
+}
+
 function updateConnectionStatus() {
     setHeadsetStatus(!!state.hardwareConnected);
     setLslStatus(!!state.lslConnected, state.lslStreamName);
+    setAudioStatus(!!state.audioLslConnected, state.audioLslStreamName);
     setOpenBciStatus(!!state.openbciConnected);
 }
 
@@ -647,11 +770,6 @@ function buildNodeStressPercentages(result) {
 }
 
 function addTranscriptLine(speaker, text, metrics = null, timing = null) {
-    const nodes = metrics && Array.isArray(metrics.nodes) && metrics.nodes.length === 8
-        ? metrics.nodes
-        : new Array(8).fill(null);
-    const confidence = metrics && typeof metrics.confidence === "number" ? metrics.confidence : null;
-
     const turnEndedAt = timing && typeof timing.turnEndedAt === "number"
         ? timing.turnEndedAt
         : Date.now();
@@ -659,13 +777,28 @@ function addTranscriptLine(speaker, text, metrics = null, timing = null) {
         ? timing.turnStartedAt
         : turnEndedAt;
 
+    const alignedMetrics = metrics || (speaker === "Interviewee" ? getMetricsForTurn(turnEndedAt) : null);
+    const nodes = alignedMetrics && Array.isArray(alignedMetrics.nodes) && alignedMetrics.nodes.length === 8
+        ? alignedMetrics.nodes
+        : new Array(8).fill(null);
+    const confidence = alignedMetrics && typeof alignedMetrics.confidence === "number" ? alignedMetrics.confidence : null;
+    const syncSuffix = speaker === "Interviewee"
+        && alignedMetrics
+        && typeof alignedMetrics.syncDeltaMs === "number"
+        ? ` | EEG Delta ${Math.round(alignedMetrics.syncDeltaMs)}ms`
+        : "";
+    const audioSyncDeltaMs = speaker === "Interviewee" ? getAudioSyncDeltaMs(turnEndedAt) : null;
+    const audioSyncSuffix = typeof audioSyncDeltaMs === "number"
+        ? ` | Audio Delta ${Math.round(audioSyncDeltaMs)}ms`
+        : "";
+
     state.transcript.push({
         speaker,
         text,
         nodes,
         confidence,
         timestamp: formatTurnTimestamp(turnEndedAt),
-        timeframe: buildTurnTimeframe(turnStartedAt, turnEndedAt),
+        timeframe: `${buildTurnTimeframe(turnStartedAt, turnEndedAt)}${syncSuffix}${audioSyncSuffix}`,
         visualization: TRANSCRIPT_VISUALIZATION_OPTIONS[0],
     });
     state.lastAssignedRole = speaker;
@@ -802,7 +935,7 @@ function initSpeechRecognition() {
                     // When LSL is active, attach the latest real-time metrics
                     // to interviewee lines instead of leaving them blank.
                     const lslMetrics = (speaker === "Interviewee" && state.lslActive && state.socketConnected)
-                        ? getLatestMetrics()
+                        ? getMetricsForTurn(turnEndedAt)
                         : null;
                     addTranscriptLine(speaker, cleanedText, lslMetrics, { turnStartedAt, turnEndedAt });
                     if (speaker === "Interviewer") {
@@ -937,6 +1070,7 @@ function updateSummary(result) {
         ? "Likely elevated cognitive stress"
         : "Likely lower cognitive stress";
 
+    recordEegSnapshot(result);
     updateLiveNodeHistory(result);
     renderLiveGraph();
 }
@@ -1235,6 +1369,13 @@ async function checkHealth() {
             state.lslStreamName = health.lsl_stream_name;
         }
 
+        if (typeof health.audio_lsl_connected === "boolean") {
+            state.audioLslConnected = health.audio_lsl_connected;
+        }
+        if (typeof health.audio_lsl_stream_name === "string" || health.audio_lsl_stream_name === null) {
+            state.audioLslStreamName = health.audio_lsl_stream_name;
+        }
+
         if (typeof health.hardware_error === "string" || health.hardware_error === null) {
             state.hardwareError = health.hardware_error;
         }
@@ -1388,6 +1529,8 @@ async function startSession() {
     state.selectedTranscriptRow = null;
     state.lastAssignedRole = null;
     state.liveNodeHistory = Array.from({ length: 8 }, () => []);
+    state.eegSnapshots = [];
+    state.audioSnapshots = [];
     state.liveNodeIndex = 0;
     state.sessionStartedAt = Date.now();
     state.speechTurnStartedAt = null;
