@@ -464,6 +464,10 @@ body {
     letter-spacing: 0.03em;
 }
 
+.transcript-table-preview td {
+    height: 34px;
+}
+
 .transcript-table {
     width: 100%;
     min-width: 1020px;

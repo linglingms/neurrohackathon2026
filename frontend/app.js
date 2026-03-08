@@ -89,6 +89,7 @@ const state = {
     liveNodeHistory: Array.from({ length: 8 }, () => []),
     socketConnected: false,
     lslActive: false,
+    hasExportableData: false,
 };
 
 const el = {
@@ -111,6 +112,7 @@ const el = {
     startBtn: document.getElementById("start-btn"),
     sampleBtn: document.getElementById("sample-btn"),
     endBtn: document.getElementById("end-btn"),
+    clearBtn: document.getElementById("clear-btn"),
     micBtn: document.getElementById("mic-btn"),
     speakerMode: document.getElementById("speaker-mode"),
     exportBtn: document.getElementById("export-btn"),
@@ -990,7 +992,15 @@ function updateButtons() {
     el.startBtn.disabled = state.active || !canStartInterview();
     el.sampleBtn.disabled = true;
     el.endBtn.disabled = !state.active;
-    el.exportBtn.disabled = state.active;
+    const clearAllowed = el.startBtn.disabled && el.endBtn.disabled;
+    if (el.clearBtn) {
+        el.clearBtn.disabled = !clearAllowed;
+    }
+    const exportAllowed = !state.active
+        && el.startBtn.disabled
+        && el.endBtn.disabled
+        && state.hasExportableData;
+    el.exportBtn.disabled = !exportAllowed;
     el.micBtn.disabled = false;
 
     if (!state.active && el.statusText) {
@@ -999,6 +1009,93 @@ function updateButtons() {
             el.statusText.textContent = preflight;
         }
     }
+}
+
+function hasSessionDataForExport() {
+    const hasScores = Array.isArray(state.scores) && state.scores.length > 0;
+    const hasTranscript = Array.isArray(state.transcript) && state.transcript.length > 0;
+    return hasScores || hasTranscript;
+}
+
+function buildClientExportPayload(serverExport = null) {
+    return {
+        exported_at: new Date().toISOString(),
+        session: {
+            active: state.active,
+            started_at: state.sessionStartedAt ? new Date(state.sessionStartedAt).toISOString() : null,
+            data_source: state.dataSource,
+            hardware_connected: state.hardwareConnected,
+            hardware_source: state.hardwareSource,
+            lsl_connected: state.lslConnected,
+            lsl_stream_name: state.lslStreamName,
+        },
+        summary: {
+            total_windows: state.scores.length,
+            average_score: state.scores.length
+                ? state.scores.reduce((a, b) => a + b, 0) / state.scores.length
+                : 0,
+            latest_result: state.lastResult,
+        },
+        transcript: state.transcript,
+        scores: state.scores,
+        backend_export: serverExport,
+    };
+}
+
+function downloadJsonFile(payload, filenamePrefix = "session_export") {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const filename = `${filenamePrefix}_${stamp}.json`;
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+}
+
+function clearAll() {
+    const clearAllowed = el.startBtn.disabled && el.endBtn.disabled;
+    if (!clearAllowed) {
+        el.statusText.textContent = "Clear All is available only when Start and End are unavailable.";
+        return;
+    }
+
+    stopEegCapture();
+
+    state.active = false;
+    state.sessionActive = false;
+    state.scores = [];
+    state.lastResult = null;
+    state.transcript = [];
+    state.selectedTranscriptRow = null;
+    state.requestInFlight = false;
+    state.lastAssignedRole = null;
+    state.dataSource = "unknown";
+    state.liveNodeIndex = 0;
+    state.liveNodeHistory = Array.from({ length: 8 }, () => []);
+    state.sessionStartedAt = null;
+    state.speechTurnStartedAt = null;
+    state.lslActive = false;
+    state.hasExportableData = false;
+
+    el.scoreValue.textContent = "--%";
+    el.scoreBar.style.width = "0%";
+    el.scoreBar.textContent = "0%";
+    el.windowsValue.textContent = "0";
+    el.avgValue.textContent = "0%";
+    el.confidenceValue.textContent = "0%";
+    el.reportBox.textContent = "End a session to view report.";
+    el.mockWarning.style.display = "none";
+
+    renderTranscript();
+    renderLiveGraph();
+    renderSentimentRankingAnalysis();
+    updateConnectionStatus();
+    updateButtons();
+    el.statusText.textContent = "Cleared. App is reset to initial state.";
 }
 
 function updateSummary(result) {
@@ -1548,6 +1645,7 @@ async function startSession() {
     state.sessionStartedAt = Date.now();
     state.speechTurnStartedAt = null;
     state.requestInFlight = false;
+    state.hasExportableData = false;
     renderTranscript();
     el.reportBox.textContent = hardwareMessage
         ? `Session started. ${hardwareMessage}. Listening for conversation...`
@@ -1617,6 +1715,7 @@ async function endSession() {
         : (state.dataSource === "live_lsl" ? "LSL live stream" : "Mock/demo signal");
 
     state.requestInFlight = false;
+    state.hasExportableData = hasSessionDataForExport();
     updateButtons();
     updateConnectionStatus();
     renderLiveGraph();
@@ -1633,17 +1732,46 @@ async function endSession() {
 }
 
 async function exportSession() {
-    const exported = await api("/session/export", { method: "POST" });
+    const exportAllowed = !state.active
+        && el.startBtn.disabled
+        && el.endBtn.disabled
+        && state.hasExportableData;
+
+    if (!exportAllowed) {
+        el.statusText.textContent = "Export is available only when Start and End are unavailable and session data exists.";
+        return;
+    }
+
+    if (!hasSessionDataForExport()) {
+        state.hasExportableData = false;
+        updateButtons();
+        el.statusText.textContent = "No session data to export.";
+        return;
+    }
+
+    let exported = null;
+    try {
+        exported = await api("/session/export", { method: "POST" });
+    } catch (error) {
+        // Continue with client-side export even when server export endpoint fails.
+    }
+
+    const payload = buildClientExportPayload(exported);
+    downloadJsonFile(payload);
+
     el.reportBox.innerHTML = [
-        `Export status: ${exported.status}`,
-        `Saved file: ${exported.file}`,
-        `Entries: ${exported.entries}`,
+        `Export status: ${exported && exported.status ? exported.status : "downloaded"}`,
+        `Saved file: ${exported && exported.file ? exported.file : "browser download"}`,
+        `Entries: ${exported && typeof exported.entries === "number" ? exported.entries : state.scores.length}`,
     ].join("<br>");
 }
 
 el.startBtn.addEventListener("click", () => startSession().catch((e) => (el.statusText.textContent = e.message)));
 el.sampleBtn.addEventListener("click", () => runSample().catch((e) => (el.statusText.textContent = e.message)));
 el.endBtn.addEventListener("click", () => endSession().catch((e) => (el.statusText.textContent = e.message)));
+if (el.clearBtn) {
+    el.clearBtn.addEventListener("click", () => clearAll());
+}
 el.micBtn.addEventListener("click", () => toggleMic().catch((e) => (el.statusText.textContent = e.message)));
 el.exportBtn.addEventListener("click", () => exportSession().catch((e) => (el.statusText.textContent = e.message)));
 el.hwConnectBtn.addEventListener("click", () => connectHardware());
