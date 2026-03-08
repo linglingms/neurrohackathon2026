@@ -84,6 +84,9 @@ const state = {
     lslStreamName: null,
     audioLslConnected: false,
     audioLslStreamName: null,
+    lastAudioLevelAt: null,
+    lastAudioRms: null,
+    lastAudioPeak: null,
     sessionActive: false,
     sessionStartedAt: null,
     speechTurnStartedAt: null,
@@ -105,6 +108,13 @@ const el = {
     headsetStatus: document.getElementById("headset-status"),
     lslStatus: document.getElementById("lsl-status"),
     audioStatus: document.getElementById("audio-status"),
+    diagApiMode: document.getElementById("diag-api-mode"),
+    diagSocket: document.getElementById("diag-socket"),
+    diagAudioStream: document.getElementById("diag-audio-stream"),
+    diagAudioTs: document.getElementById("diag-audio-ts"),
+    diagAudioRms: document.getElementById("diag-audio-rms"),
+    diagAudioPeak: document.getElementById("diag-audio-peak"),
+    diagPathHint: document.getElementById("diag-path-hint"),
     openbciStatus: document.getElementById("openbci-status"),
     micPill: document.getElementById("mic-pill"),
     hwPill: document.getElementById("hw-pill"),
@@ -220,6 +230,56 @@ function getResultTimestampMs(result) {
     return Date.now();
 }
 
+function getApiRouteLabel() {
+    if (apiOverrideRaw === "live") {
+        return "Vercel /live-api proxy";
+    }
+    if (apiOverrideRaw) {
+        return "Direct API override";
+    }
+    if (isLocalStatic) {
+        return "Local static -> local backend";
+    }
+    return "Vercel serverless /api";
+}
+
+function formatDiagnosticTime(timestampMs) {
+    if (typeof timestampMs !== "number" || Number.isNaN(timestampMs)) {
+        return "--:--:--";
+    }
+    return new Date(timestampMs).toLocaleTimeString([], { hour12: false });
+}
+
+function renderAudioDiagnostics() {
+    if (!el.diagApiMode) {
+        return;
+    }
+
+    el.diagApiMode.textContent = getApiRouteLabel();
+    if (el.diagSocket) {
+        el.diagSocket.textContent = state.socketConnected ? "connected" : "disconnected";
+    }
+    if (el.diagAudioStream) {
+        el.diagAudioStream.textContent = state.audioLslConnected
+            ? (state.audioLslStreamName || "connected")
+            : "not detected";
+    }
+    if (el.diagAudioTs) {
+        el.diagAudioTs.textContent = formatDiagnosticTime(state.lastAudioLevelAt);
+    }
+    if (el.diagAudioRms) {
+        el.diagAudioRms.textContent = typeof state.lastAudioRms === "number" ? state.lastAudioRms.toFixed(4) : "--";
+    }
+    if (el.diagAudioPeak) {
+        el.diagAudioPeak.textContent = typeof state.lastAudioPeak === "number" ? state.lastAudioPeak.toFixed(4) : "--";
+    }
+    if (el.diagPathHint) {
+        el.diagPathHint.textContent = apiOverrideRaw === "live"
+            ? "Using /live-api proxy. Keep your local Flask backend + ngrok tunnel running for audio LSL flow."
+            : "Hint: For full App-AudioCapture streaming, use local Flask backend plus ngrok or the /live-api proxy path (?api=live).";
+    }
+}
+
 function recordEegSnapshot(result) {
     if (!result) {
         return;
@@ -257,10 +317,16 @@ function recordAudioSnapshot(sample) {
         peak: typeof sample.peak === "number" ? sample.peak : null,
     });
 
+    state.lastAudioLevelAt = timestampMs;
+    state.lastAudioRms = typeof sample.rms === "number" ? sample.rms : null;
+    state.lastAudioPeak = typeof sample.peak === "number" ? sample.peak : null;
+
     const cutoff = Date.now() - AUDIO_SNAPSHOT_RETENTION_MS;
     state.audioSnapshots = state.audioSnapshots
         .filter((snapshot) => snapshot.timestampMs >= cutoff)
         .slice(-MAX_AUDIO_SNAPSHOTS);
+
+    renderAudioDiagnostics();
 }
 
 function getAudioSyncDeltaMs(turnEndedAt) {
@@ -340,11 +406,13 @@ function initSocket() {
     socket.on("connect", () => {
         state.socketConnected = true;
         console.log("Socket.IO connected to", SOCKET_URL);
+        renderAudioDiagnostics();
     });
 
     socket.on("disconnect", () => {
         state.socketConnected = false;
         console.warn("Socket.IO disconnected");
+        renderAudioDiagnostics();
     });
 
     // Real-time scored EEG data pushed from LSL consumer on the backend
@@ -397,6 +465,7 @@ function initSocket() {
         state.audioLslConnected = !!data.connected;
         state.audioLslStreamName = data.stream_name || null;
         updateConnectionStatus();
+        renderAudioDiagnostics();
     });
 
     socket.on("audio_level", (data) => {
@@ -451,6 +520,7 @@ function updateConnectionStatus() {
     setLslStatus(!!state.lslConnected, state.lslStreamName);
     setAudioStatus(!!state.audioLslConnected, state.audioLslStreamName);
     setOpenBciStatus(!!state.openbciConnected);
+    renderAudioDiagnostics();
 }
 
 function getSelectedSourceMode() {
@@ -1699,6 +1769,8 @@ window.addEventListener("beforeunload", () => {
         } catch (error) {
             // No-op on unload.
         }
+
+        renderAudioDiagnostics();
     }
 });
 
@@ -1707,6 +1779,7 @@ updateMicUi();
 renderTranscript();
 renderLiveGraph();
 updateConnectionStatus();
+renderAudioDiagnostics();
 updateSourceModeUi();
 checkHealth();
 scanPorts();

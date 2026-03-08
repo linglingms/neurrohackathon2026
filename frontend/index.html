@@ -75,6 +75,19 @@
             </div>
         </section>
 
+        <section class="diag-panel" id="diag-panel">
+            <h3>Audio Sync Diagnostics</h3>
+            <div class="diag-grid">
+                <div class="diag-item"><span>API Route</span><strong id="diag-api-mode">detecting...</strong></div>
+                <div class="diag-item"><span>Socket</span><strong id="diag-socket">disconnected</strong></div>
+                <div class="diag-item"><span>Audio Stream</span><strong id="diag-audio-stream">not detected</strong></div>
+                <div class="diag-item"><span>Last Audio Level</span><strong id="diag-audio-ts">--:--:--</strong></div>
+                <div class="diag-item"><span>RMS</span><strong id="diag-audio-rms">--</strong></div>
+                <div class="diag-item"><span>Peak</span><strong id="diag-audio-peak">--</strong></div>
+            </div>
+            <p id="diag-path-hint" class="diag-hint">Hint: For full App-AudioCapture streaming, use local Flask backend plus ngrok or the /live-api proxy path.</p>
+        </section>
+
         <section id="mock-warning" class="mock-warning" style="display:none">
             &#x26A0; Using simulated EEG data — results are not real. Connect hardware for live readings.
         </section>
