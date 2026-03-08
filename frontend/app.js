@@ -130,6 +130,7 @@ const el = {
     liveGraphSelect: document.getElementById("live-graph-select"),
     liveNodePicker: document.getElementById("live-node-picker"),
     micCaption: document.getElementById("mic-caption"),
+    sentimentRankingBody: document.getElementById("sentiment-ranking-body"),
 };
 
 const LIVE_NODE_HISTORY_LIMIT = 24;
@@ -410,6 +411,7 @@ function renderTranscript() {
     if (!state.transcript.length) {
         el.transcriptLog.innerHTML = '<div class="transcript-empty">Transcript will appear after the interview starts.</div>';
         renderTranscriptGraph();
+        renderSentimentRankingAnalysis();
         return;
     }
 
@@ -456,6 +458,7 @@ function renderTranscript() {
     el.transcriptLog.scrollTop = el.transcriptLog.scrollHeight;
     renderTranscriptGraph();
     renderLiveGraph();
+    renderSentimentRankingAnalysis();
 }
 
 function renderTranscriptGraph() {
@@ -1215,62 +1218,44 @@ function buildLocalSessionReport() {
     };
 }
 
-function formatTablePercent(value) {
-    if (typeof value !== "number" || Number.isNaN(value)) {
-        return "--";
-    }
-    return `${value.toFixed(1)}%`;
-}
-
-function buildTopStatementRows(entries, metricKey) {
-    const metricLabel = metricKey === "stress" ? "Stress" : "Confidence";
-
-    const ranked = entries
+function getTopIntervieweeStatements(metricKey) {
+    return state.transcript
         .filter((entry) => entry && entry.speaker === "Interviewee")
         .filter((entry) => typeof entry[metricKey] === "number" && !Number.isNaN(entry[metricKey]))
         .sort((a, b) => b[metricKey] - a[metricKey])
         .slice(0, 5);
-
-    if (!ranked.length) {
-        return `<tr><td colspan="3" class="report-table-empty">No interviewee statements with ${metricLabel.toLowerCase()} data.</td></tr>`;
-    }
-
-    return ranked
-        .map((entry, index) => {
-            const statement = escapeHtml(entry.text || "(no transcript text)");
-            return [
-                "<tr>",
-                `<td>${index + 1}</td>`,
-                `<td class="report-statement-cell">${statement}</td>`,
-                `<td>${formatTablePercent(entry[metricKey])}</td>`,
-                "</tr>",
-            ].join("");
-        })
-        .join("");
 }
 
-function buildTopStatementsSection() {
-    const topStressRows = buildTopStatementRows(state.transcript, "stress");
-    const topConfidenceRows = buildTopStatementRows(state.transcript, "confidence");
+function renderSentimentRankingAnalysis() {
+    if (!el.sentimentRankingBody) {
+        return;
+    }
 
-    return [
-        '<div class="report-tables-wrap">',
-        '<div class="report-table-block">',
-        '<h4>Top 5 Interviewee Statements by Stress %</h4>',
-        '<table class="report-table">',
-        '<thead><tr><th>#</th><th>Statement</th><th>Stress %</th></tr></thead>',
-        `<tbody>${topStressRows}</tbody>`,
-        '</table>',
-        '</div>',
-        '<div class="report-table-block">',
-        '<h4>Top 5 Interviewee Statements by Confidence %</h4>',
-        '<table class="report-table">',
-        '<thead><tr><th>#</th><th>Statement</th><th>Confidence %</th></tr></thead>',
-        `<tbody>${topConfidenceRows}</tbody>`,
-        '</table>',
-        '</div>',
-        '</div>',
-    ].join("");
+    const topStress = getTopIntervieweeStatements("stress");
+    const topConfidence = getTopIntervieweeStatements("confidence");
+    const rows = [];
+
+    for (let i = 0; i < 5; i += 1) {
+        const stressRow = topStress[i] || null;
+        const confidenceRow = topConfidence[i] || null;
+
+        const stressStatement = stressRow ? escapeHtml(stressRow.text || "") : "";
+        const stressPercent = stressRow ? `${stressRow.stress.toFixed(1)}%` : "";
+        const confidenceStatement = confidenceRow ? escapeHtml(confidenceRow.text || "") : "";
+        const confidencePercent = confidenceRow ? `${confidenceRow.confidence.toFixed(1)}%` : "";
+
+        rows.push([
+            "<tr>",
+            `<td>${i + 1}</td>`,
+            `<td class="ranking-statement-cell">${stressStatement || "&nbsp;"}</td>`,
+            `<td>${stressPercent || "&nbsp;"}</td>`,
+            `<td class="ranking-statement-cell">${confidenceStatement || "&nbsp;"}</td>`,
+            `<td>${confidencePercent || "&nbsp;"}</td>`,
+            "</tr>",
+        ].join(""));
+    }
+
+    el.sentimentRankingBody.innerHTML = rows.join("");
 }
 
 async function checkHealth() {
@@ -1463,6 +1448,7 @@ async function startSession() {
     state.sessionStartedAt = Date.now();
     state.speechTurnStartedAt = null;
     state.requestInFlight = false;
+    renderTranscript();
     el.reportBox.textContent = hardwareMessage
         ? `Session started. ${hardwareMessage}. Listening for conversation...`
         : "Session started. Listening for conversation...";
@@ -1542,8 +1528,8 @@ async function endSession() {
         `<div>Average probability: ${(report.average_deception_probability * 100).toFixed(1)}%</div>`,
         `<div>Assessment: ${report.session_assessment}</div>`,
         '</div>',
-        buildTopStatementsSection(),
     ].join("");
+    renderSentimentRankingAnalysis();
 }
 
 async function exportSession() {
@@ -1637,6 +1623,7 @@ updateButtons();
 updateMicUi();
 renderTranscript();
 renderLiveGraph();
+renderSentimentRankingAnalysis();
 updateConnectionStatus();
 updateSourceModeUi();
 checkHealth();

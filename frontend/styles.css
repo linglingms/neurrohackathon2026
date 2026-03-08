@@ -803,6 +803,78 @@ body {
     font-style: italic;
 }
 
+.ranking-wrap {
+    margin-top: 16px;
+    background: rgba(11, 20, 34, 0.78);
+    border: 1px solid rgba(159, 197, 232, 0.2);
+    border-radius: 14px;
+    padding: 16px;
+}
+
+.ranking-wrap h2 {
+    color: #edfbff;
+    margin-bottom: 12px;
+    font-size: 1.05rem;
+}
+
+.ranking-table-shell {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.ranking-table {
+    width: 100%;
+    min-width: 760px;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    background: rgba(13, 27, 45, 0.72);
+    border: 1px solid rgba(126, 242, 212, 0.2);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.ranking-table th,
+.ranking-table td {
+    border-bottom: 1px solid rgba(159, 197, 232, 0.15);
+    border-right: 1px solid rgba(159, 197, 232, 0.12);
+    padding: 8px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.ranking-table th:last-child,
+.ranking-table td:last-child {
+    border-right: 0;
+}
+
+.ranking-table thead th {
+    background: rgba(20, 38, 60, 0.85);
+    color: #cfe5fa;
+    font-weight: 700;
+}
+
+.ranking-table td {
+    color: #dff2ff;
+    min-height: 36px;
+}
+
+.ranking-table td:first-child {
+    width: 56px;
+    text-align: center;
+    font-weight: 700;
+}
+
+.ranking-table td:nth-child(3),
+.ranking-table td:nth-child(5) {
+    width: 108px;
+    white-space: nowrap;
+}
+
+.ranking-statement-cell {
+    line-height: 1.4;
+    color: #d7eafc;
+}
+
 @media (max-width: 768px) {
     .container {
         padding: 16px 14px 30px;
@@ -857,5 +929,9 @@ body {
 
     .live-node-picker {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .ranking-wrap {
+        padding: 12px;
     }
 }
