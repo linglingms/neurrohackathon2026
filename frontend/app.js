@@ -408,17 +408,46 @@ function updateSourceModeUi() {
 }
 
 function renderTranscript() {
+    const headerCells = ["View", "Role", "Timestamp", "1", "2", "3", "4", "5", "6", "7", "8"];
+    const headerHtml = headerCells.map((label) => `<th>${label}</th>`).join("");
+
     if (!state.transcript.length) {
-        el.transcriptLog.innerHTML = '<div class="transcript-empty">Transcript will appear after the interview starts.</div>';
-        el.transcriptLog.style.height = "";
-        el.transcriptLog.style.maxHeight = "";
+        const emptyToken = state.active
+            ? "&nbsp;"
+            : '<span class="transcript-placeholder">--</span>';
+
+        const previewRows = new Array(5)
+            .fill(null)
+            .map((_, index) => [
+                `<tr data-preview-row="${index}">`,
+                `<td class="transcript-placeholder-cell">${emptyToken}</td>`,
+                `<td class="transcript-placeholder-cell">${emptyToken}</td>`,
+                `<td class="transcript-placeholder-cell">${emptyToken}</td>`,
+                `<td class="transcript-placeholder-cell">${emptyToken}</td>`,
+                `<td class="transcript-placeholder-cell">${emptyToken}</td>`,
+                `<td class="transcript-placeholder-cell">${emptyToken}</td>`,
+                `<td class="transcript-placeholder-cell">${emptyToken}</td>`,
+                `<td class="transcript-placeholder-cell">${emptyToken}</td>`,
+                `<td class="transcript-placeholder-cell">${emptyToken}</td>`,
+                `<td class="transcript-placeholder-cell">${emptyToken}</td>`,
+                `<td class="transcript-placeholder-cell">${emptyToken}</td>`,
+                "</tr>",
+            ].join(""))
+            .join("");
+
+        el.transcriptLog.innerHTML = [
+            '<table class="transcript-table transcript-table-preview">',
+            `<thead><tr>${headerHtml}</tr></thead>`,
+            `<tbody>${previewRows}</tbody>`,
+            "</table>",
+        ].join("");
+
+        setTranscriptPreviewWindow();
+        el.transcriptLog.scrollTop = 0;
         renderTranscriptGraph();
         renderSentimentRankingAnalysis();
         return;
     }
-
-    const headerCells = ["View", "Role", "Timestamp", "1", "2", "3", "4", "5", "6", "7", "8"];
-    const headerHtml = headerCells.map((label) => `<th>${label}</th>`).join("");
 
     if (state.selectedTranscriptRow === null || state.selectedTranscriptRow >= state.transcript.length) {
         const latestWithEeg = state.transcript
@@ -469,6 +498,10 @@ function setTranscriptPreviewWindow() {
     if (!el.transcriptLog) {
         return;
     }
+
+    // Keep transcript area scrollable regardless of row count.
+    el.transcriptLog.style.overflowY = "auto";
+    el.transcriptLog.style.overflowX = "auto";
 
     const table = el.transcriptLog.querySelector(".transcript-table");
     if (!(table instanceof HTMLTableElement)) {

@@ -450,6 +450,20 @@ body {
     padding: 10px;
 }
 
+.transcript-placeholder-cell {
+    text-align: center;
+}
+
+.transcript-placeholder {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    color: #95b4cf;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+}
+
 .transcript-table {
     width: 100%;
     min-width: 1020px;
