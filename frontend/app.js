@@ -35,6 +35,7 @@ function normalizeApiBase(url) {
 const API_BASE_URL = normalizeApiBase(apiOverride) || (isLocalStatic ? `http://${host}:5050/api` : `${window.location.origin}/api`);
 let activeApiBaseUrl = API_BASE_URL;
 const SOCKET_URL = API_BASE_URL.replace(/\/api\/?$/, "");
+const NGROK_HOST_PATTERN = /(^|\.)ngrok-free\.app$|(^|\.)ngrok\.io$/i;
 const MAX_TRANSCRIPT_ROWS = 160;
 const EEG_CAPTURE_INTERVAL_MS = 1000;
 const STATUS_REFRESH_INTERVAL_MS = 5000;
@@ -989,11 +990,35 @@ async function resolveHealthyApiBase() {
 
     for (const baseUrl of candidates) {
         try {
-            const response = await fetch(`${baseUrl}/health`);
+            let isNgrok = false;
+            try {
+                const parsed = new URL(baseUrl);
+                isNgrok = NGROK_HOST_PATTERN.test(parsed.hostname);
+            } catch (error) {
+                isNgrok = false;
+            }
+
+            const response = await fetch(`${baseUrl}/health`, {
+                headers: isNgrok ? { "ngrok-skip-browser-warning": "true" } : {},
+            });
             if (!response.ok) {
                 continue;
             }
-            const payload = await response.json();
+
+            const contentType = (response.headers.get("content-type") || "").toLowerCase();
+            let payload;
+            if (contentType.includes("application/json")) {
+                payload = await response.json();
+            } else {
+                const text = await response.text();
+                try {
+                    payload = JSON.parse(text);
+                } catch (error) {
+                    // Some providers return HTML warnings/interstitials.
+                    continue;
+                }
+            }
+
             activeApiBaseUrl = baseUrl;
             setApiBaseLabel(baseUrl, true);
             return { baseUrl, payload };
@@ -1265,6 +1290,9 @@ async function checkHealth() {
         el.health.textContent = "API Offline";
         el.health.className = "pill pill-bad";
         setApiBaseLabel(activeApiBaseUrl, false);
+        if (apiOverride && el.statusText) {
+            el.statusText.textContent = "API override is offline. Verify ngrok tunnel is running and /api/health returns JSON.";
+        }
         // Keep last known states to avoid false red flips during brief tunnel/network drops.
         updateConnectionStatus();
         updateHardwareUI(state.hardwareConnected, state.hardwarePort, {
