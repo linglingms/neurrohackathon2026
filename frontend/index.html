@@ -19,6 +19,9 @@
                 <div id="headset-status" class="status-indicator">
                     Headset: <span class="status-word status-word-bad">Disconnected</span>
                 </div>
+                <div id="lsl-status" class="status-indicator">
+                    LSL: <span class="status-word status-word-bad">Disconnected</span>
+                </div>
                 <div id="openbci-status" class="status-indicator">
                     OpenBCI Session: <span class="status-word status-word-bad">Not Started</span>
                 </div>
@@ -37,6 +40,11 @@
                 <span id="hw-message">OpenBCI not connected</span>
             </div>
             <div class="hw-bar-right">
+                <select id="source-select" class="port-select">
+                    <option value="auto" selected>Source: Auto (LSL first)</option>
+                    <option value="lsl">Source: LSL only</option>
+                    <option value="serial">Source: Serial only</option>
+                </select>
                 <select id="port-select" class="port-select">
                     <option value="">Scanning...</option>
                 </select>

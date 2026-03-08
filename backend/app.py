@@ -76,6 +76,15 @@ def _active_port_label():
         return stream_obj.serial_port
     return None
 
+
+def _lsl_status_payload(timeout=0.3):
+    """Return a consistent LSL status shape for API responses."""
+    return {
+        'lsl_connected': lsl_stream.connected,
+        'lsl_stream_name': lsl_stream.active_stream_name,
+        'available_lsl_streams': lsl_stream.available_streams(timeout=timeout),
+    }
+
 # --- Auto-connect at startup ---
 def _try_auto_connect():
     """Attempt to connect to live source on startup (LSL first, serial fallback)."""
@@ -119,12 +128,14 @@ _try_auto_connect()
 @app.route('/api/health', methods=['GET'])
 def health():
     source, _ = _active_stream()
+    lsl_status = _lsl_status_payload(timeout=0.2)
     return jsonify({
         'status': 'healthy',
         'service': 'lie-detector-backend',
         'hardware_connected': bool(source),
         'hardware_port': _active_port_label(),
         'hardware_source': source,
+        **lsl_status,
         'session_active': session_active,
         'hardware_error': last_hardware_error,
     })
@@ -209,17 +220,30 @@ def hardware_scan():
 @app.route('/api/hardware/status', methods=['GET'])
 def hardware_status():
     source, _ = _active_stream()
+    lsl_status = _lsl_status_payload(timeout=0.5)
     return jsonify({
         'connected': bool(source),
         'source': source,
         'port': _active_port_label() or serial_stream.serial_port,
         'available_ports': serial_stream.list_available_ports(),
-        'available_lsl_streams': lsl_stream.available_streams(timeout=0.5),
+        **lsl_status,
         'board': 'Cyton+Daisy',
         'channels': config.EEG_CHANNELS,
         'sampling_rate': config.SAMPLING_RATE,
         'error': last_hardware_error,
     })
+
+
+@app.route('/api/hardware/lsl/status', methods=['GET'])
+def lsl_status():
+    source, _ = _active_stream()
+    payload = _lsl_status_payload(timeout=0.5)
+    payload.update({
+        'connected': bool(source),
+        'source': source,
+        'hardware_error': last_hardware_error,
+    })
+    return jsonify(payload)
 
 
 @app.route('/api/hardware/ports', methods=['GET'])

@@ -51,6 +51,9 @@ const state = {
     dataSource: "unknown",
     eegTimer: null,
     hardwareConnected: false,
+    hardwareSource: null,
+    lslConnected: false,
+    lslStreamName: null,
     sessionActive: false,
     apiOnline: false,
     hardwarePort: null,
@@ -61,6 +64,7 @@ const el = {
     health: document.getElementById("health-pill"),
     apiBaseLabel: document.getElementById("api-base-label"),
     headsetStatus: document.getElementById("headset-status"),
+    lslStatus: document.getElementById("lsl-status"),
     openbciStatus: document.getElementById("openbci-status"),
     micPill: document.getElementById("mic-pill"),
     hwPill: document.getElementById("hw-pill"),
@@ -70,6 +74,7 @@ const el = {
     hwConnectBtn: document.getElementById("hw-connect-btn"),
     hwDisconnectBtn: document.getElementById("hw-disconnect-btn"),
     portSelect: document.getElementById("port-select"),
+    sourceSelect: document.getElementById("source-select"),
     mockWarning: document.getElementById("mock-warning"),
     startBtn: document.getElementById("start-btn"),
     sampleBtn: document.getElementById("sample-btn"),
@@ -123,8 +128,19 @@ function setOpenBciStatus(started) {
     el.openbciStatus.innerHTML = `OpenBCI Session: <span class="${statusClass}">${label}</span>`;
 }
 
+function setLslStatus(connected, streamName = null) {
+    if (!el.lslStatus) {
+        return;
+    }
+
+    const label = connected ? `Connected${streamName ? ` (${streamName})` : ""}` : "Disconnected";
+    const statusClass = connected ? "status-word status-word-ok" : "status-word status-word-bad";
+    el.lslStatus.innerHTML = `LSL: <span class="${statusClass}">${label}</span>`;
+}
+
 function updateConnectionStatus() {
     setHeadsetStatus(!!state.hardwareConnected);
+    setLslStatus(!!state.lslConnected, state.lslStreamName);
     setOpenBciStatus(!!state.sessionActive);
 }
 
@@ -571,15 +587,16 @@ async function resolveHealthyApiBase() {
 }
 
 function updateHardwareUI(connected, port, options = {}) {
-    const { apiOnline = true, error = null } = options;
+    const { apiOnline = true, error = null, source = null } = options;
     const portLabel = port || "serial";
+    const sourceLabel = source === "lsl" ? "LSL" : "OpenBCI";
 
     if (connected) {
         el.hwPill.textContent = `HW: ${port || "Connected"}`;
         el.hwPill.className = "pill pill-ok";
         el.hwBar.className = "hw-bar hw-bar-connected";
         el.hwIcon.innerHTML = "&#x2705;";
-        el.hwMessage.textContent = `OpenBCI connected on ${portLabel}`;
+        el.hwMessage.textContent = `${sourceLabel} connected on ${portLabel}`;
         el.hwConnectBtn.style.display = "none";
         el.hwDisconnectBtn.style.display = "";
         el.portSelect.style.display = "none";
@@ -623,30 +640,50 @@ async function scanPorts() {
                 : `${p.port} - ${p.description}`;
             el.portSelect.appendChild(opt);
         }
+
+        if (data && typeof data.source === "string") {
+            state.hardwareSource = data.source;
+        }
     } catch {
         el.portSelect.innerHTML = '<option value="">Scan failed</option>';
     }
 }
 
 async function connectHardware() {
+    const mode = (el.sourceSelect && el.sourceSelect.value) || "auto";
     const port = el.portSelect.value;
-    if (!port) return;
+    if (mode === "serial" && !port) return;
     el.hwConnectBtn.disabled = true;
     el.hwConnectBtn.textContent = "Connecting...";
     try {
+        const payload = { mode };
+        if (port) {
+            payload.port = port;
+        }
         const data = await api("/hardware/connect", {
             method: "POST",
-            body: JSON.stringify({ port }),
+            body: JSON.stringify(payload),
         });
         state.hardwarePort = data.port || port;
+        state.hardwareSource = data.source || state.hardwareSource;
+        state.lslConnected = state.hardwareSource === "lsl";
+        state.lslStreamName = state.lslConnected ? state.hardwarePort : null;
         state.hardwareError = null;
-        updateHardwareUI(true, state.hardwarePort, { apiOnline: true, error: null });
+        updateHardwareUI(true, state.hardwarePort, {
+            apiOnline: true,
+            error: null,
+            source: state.hardwareSource,
+        });
         state.hardwareConnected = true;
-        state.dataSource = "openbci";
+        state.dataSource = state.hardwareSource === "lsl" ? "live_lsl" : "openbci";
         updateConnectionStatus();
     } catch (error) {
         state.hardwareError = error.message;
-        updateHardwareUI(false, state.hardwarePort, { apiOnline: true, error: state.hardwareError });
+        updateHardwareUI(false, state.hardwarePort, {
+            apiOnline: true,
+            error: state.hardwareError,
+            source: state.hardwareSource,
+        });
     } finally {
         el.hwConnectBtn.disabled = false;
         el.hwConnectBtn.textContent = "Connect";
@@ -659,6 +696,9 @@ async function disconnectHardware() {
         state.hardwareError = null;
         updateHardwareUI(false, null, { apiOnline: true, error: null });
         state.hardwareConnected = false;
+        state.hardwareSource = null;
+        state.lslConnected = false;
+        state.lslStreamName = null;
         state.hardwarePort = null;
         updateConnectionStatus();
         scanPorts();
@@ -723,6 +763,20 @@ async function checkHealth() {
             state.sessionActive = health.session_active;
         }
 
+        if (typeof health.hardware_source === "string" || health.hardware_source === null) {
+            state.hardwareSource = health.hardware_source;
+        }
+
+        if (typeof health.lsl_connected === "boolean") {
+            state.lslConnected = health.lsl_connected;
+        } else {
+            state.lslConnected = state.hardwareSource === "lsl";
+        }
+
+        if (typeof health.lsl_stream_name === "string" || health.lsl_stream_name === null) {
+            state.lslStreamName = health.lsl_stream_name;
+        }
+
         if (typeof health.hardware_error === "string" || health.hardware_error === null) {
             state.hardwareError = health.hardware_error;
         }
@@ -737,8 +791,17 @@ async function checkHealth() {
             if (typeof hardware.connected === "boolean") {
                 state.hardwareConnected = hardware.connected;
             }
+            if (typeof hardware.source === "string" || hardware.source === null) {
+                state.hardwareSource = hardware.source;
+            }
             if (hardware.port) {
                 state.hardwarePort = hardware.port;
+            }
+            if (typeof hardware.lsl_connected === "boolean") {
+                state.lslConnected = hardware.lsl_connected;
+            }
+            if (typeof hardware.lsl_stream_name === "string" || hardware.lsl_stream_name === null) {
+                state.lslStreamName = hardware.lsl_stream_name;
             }
             if (typeof hardware.error === "string" || hardware.error === null) {
                 state.hardwareError = hardware.error;
@@ -762,6 +825,7 @@ async function checkHealth() {
         updateHardwareUI(state.hardwareConnected, state.hardwarePort, {
             apiOnline: true,
             error: state.hardwareError,
+            source: state.hardwareSource,
         });
     } catch (error) {
         state.apiOnline = false;
@@ -773,6 +837,7 @@ async function checkHealth() {
         updateHardwareUI(state.hardwareConnected, state.hardwarePort, {
             apiOnline: false,
             error: state.hardwareError,
+            source: state.hardwareSource,
         });
     }
 }
@@ -780,28 +845,46 @@ async function checkHealth() {
 async function startSession() {
     let hardwareMessage = "";
     let hardwareConnected = false;
+    const mode = (el.sourceSelect && el.sourceSelect.value) || "auto";
     const selectedPort = el.portSelect && el.portSelect.value ? el.portSelect.value : null;
     try {
-        const payload = selectedPort ? { port: selectedPort } : {};
+        const payload = { mode };
+        if (selectedPort) {
+            payload.port = selectedPort;
+        }
         const hardware = await api("/hardware/connect", {
             method: "POST",
             body: JSON.stringify(payload),
         });
         if (hardware && (hardware.status === "connected" || hardware.status === "already_connected")) {
             hardwareMessage = `Hardware: ${hardware.status.replace("_", " ")}`;
-            state.dataSource = "openbci";
+            state.hardwareSource = hardware.source || state.hardwareSource;
+            state.dataSource = state.hardwareSource === "lsl" ? "live_lsl" : "openbci";
             state.hardwareConnected = true;
             hardwareConnected = true;
             state.hardwarePort = hardware.port || selectedPort;
+            state.lslConnected = state.hardwareSource === "lsl";
+            state.lslStreamName = state.lslConnected ? state.hardwarePort : null;
             state.hardwareError = null;
-            updateHardwareUI(true, state.hardwarePort, { apiOnline: true, error: null });
+            updateHardwareUI(true, state.hardwarePort, {
+                apiOnline: true,
+                error: null,
+                source: state.hardwareSource,
+            });
         }
     } catch (error) {
         hardwareMessage = "Hardware unavailable";
         state.hardwareConnected = false;
+        state.hardwareSource = null;
+        state.lslConnected = false;
+        state.lslStreamName = null;
         state.dataSource = "unknown";
         state.hardwareError = error.message;
-        updateHardwareUI(false, state.hardwarePort, { apiOnline: true, error: state.hardwareError });
+        updateHardwareUI(false, state.hardwarePort, {
+            apiOnline: true,
+            error: state.hardwareError,
+            source: state.hardwareSource,
+        });
         if (isLiveOverride) {
             el.mockWarning.style.display = "none";
             throw new Error(`OpenBCI hardware connect failed: ${error.message}`);
@@ -825,8 +908,8 @@ async function startSession() {
     el.reportBox.textContent = hardwareMessage
         ? `Session started. ${hardwareMessage}. Listening for conversation...`
         : "Session started. Listening for conversation...";
-    el.statusText.textContent = state.dataSource === "openbci"
-        ? "Conversation capture active (interviewee OpenBCI scoring)"
+    el.statusText.textContent = state.dataSource === "openbci" || state.dataSource === "live_lsl"
+        ? "Conversation capture active (interviewee live EEG scoring)"
         : (isLiveOverride
             ? "Session started, but headset is disconnected. Close OpenBCI GUI and reconnect board."
             : "Conversation capture active (scores paused until OpenBCI source is connected)");
@@ -849,8 +932,8 @@ async function startSession() {
             // Ignore duplicate starts when already listening.
         }
     }
-    el.statusText.textContent = state.dataSource === "openbci"
-        ? "Conversation capture active (interviewee OpenBCI scoring)"
+    el.statusText.textContent = state.dataSource === "openbci" || state.dataSource === "live_lsl"
+        ? "Conversation capture active (interviewee live EEG scoring)"
         : (isLiveOverride
             ? "Session started, but headset is disconnected. Close OpenBCI GUI and reconnect board."
             : "Conversation capture active (scores paused until OpenBCI source is connected)");
